@@ -655,6 +655,9 @@ class WebSearchAgent:
             "content": content or snippet or title,
         }
 
+    def fetch_page_text(self, url: str) -> str:
+        return self._fetch_page_text(url)
+
     def _normalize_duckduckgo_url(self, href: str) -> str:
         if href.startswith("//duckduckgo.com/l/?"):
             parsed = urlparse("https:" + href)

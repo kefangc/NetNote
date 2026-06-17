@@ -15,6 +15,17 @@ SourceStatus = Literal[
     "failed",
 ]
 
+ExtractionStatus = Literal["complete", "partial", "fallback", "failed", "unknown"]
+ExtractionMethod = Literal[
+    "jina_reader",
+    "trafilatura",
+    "html_fallback",
+    "search_snippet",
+    "file",
+    "seed",
+    "unknown",
+]
+
 
 class Citation(BaseModel):
     source_id: str
@@ -41,6 +52,9 @@ class Source(BaseModel):
     path: str | None = None
     url: str | None = None
     error: str | None = None
+    extraction_status: ExtractionStatus = "unknown"
+    extraction_method: ExtractionMethod = "unknown"
+    content_length: int = 0
     chunks: list[SourceChunk] = Field(default_factory=list)
 
 
@@ -131,6 +145,8 @@ class AddWebSourceRequest(BaseModel):
     title: str
     url: str
     content: str
+    domain: str | None = None
+    source_provider: str | None = None
 
 
 class QuizSubmitRequest(BaseModel):

@@ -131,7 +131,10 @@ def search_web(request: ChatRequest):
 def add_web_source(request: AddWebSourceRequest):
     state = ensure_seed()
     source_id = make_id("source")
-    chunks = chunk_text(request.content, source_id, request.title)
+    search_agent = WebSearchAgent()
+    fetched = search_agent.fetch_page_text(request.url)
+    content = fetched or request.content
+    chunks = chunk_text(content, source_id, request.title)
     source = Source(
         id=source_id,
         title=request.title,

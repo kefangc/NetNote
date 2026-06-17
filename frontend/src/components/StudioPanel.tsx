@@ -79,7 +79,7 @@ export function StudioPanel({
   }
 
   return (
-    <aside className="panel flex min-h-0 flex-col">
+    <aside className="panel relative flex min-h-0 flex-col">
       <PanelHeader title="Studio" action={<CollapseButton label="收起 Studio" onClick={onCollapse} />} />
       <div className="border-b border-[#edf0f7] p-4">
         <div className="grid grid-cols-2 gap-3">
@@ -93,6 +93,16 @@ export function StudioPanel({
           ))}
         </div>
       </div>
+      {customKind ? (
+        <CustomGeneratePopover
+          kind={customKind}
+          onClose={() => setCustomKind(null)}
+          onGenerate={(prompt) => {
+            setCustomKind(null);
+            onGenerate(customKind, prompt);
+          }}
+        />
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {busy?.startsWith("正在生成") ? <GeneratingCard label={busy} /> : null}
@@ -102,16 +112,6 @@ export function StudioPanel({
           ))}
         </div>
       </div>
-      {customKind ? (
-        <CustomGenerateDialog
-          kind={customKind}
-          onClose={() => setCustomKind(null)}
-          onGenerate={(prompt) => {
-            setCustomKind(null);
-            onGenerate(customKind, prompt);
-          }}
-        />
-      ) : null}
     </aside>
   );
 }
@@ -182,6 +182,79 @@ function StudioTool({ kind, onGenerate, onCustomize }: { kind: ArtifactKind; onG
         ›
       </button>
     </div>
+  );
+}
+
+function CustomGeneratePopover({
+  kind,
+  onClose,
+  onGenerate,
+}: {
+  kind: ArtifactKind;
+  onClose: () => void;
+  onGenerate: (prompt: string) => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [amount, setAmount] = useState("标准（默认）");
+  const [difficulty, setDifficulty] = useState("中等（默认）");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const options = kind === "flashcards" || kind === "quiz"
+      ? `数量：${amount}；难度：${difficulty}。`
+      : "";
+    onGenerate([options, prompt.trim()].filter(Boolean).join("\n"));
+  }
+
+  return (
+    <form className="custom-popover" onSubmit={submit}>
+      <div className="custom-popover-arrow" />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#202124]">自定义{artifactLabel(kind)}</p>
+          <p className="mt-1 text-xs leading-5 text-[#6b7280]">基于您的来源生成，可补充主题、章节或难度要求。</p>
+        </div>
+        <button className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-lg text-[#5f6368] hover:bg-[#f1f3f4]" type="button" onClick={onClose}>×</button>
+      </div>
+      {kind === "flashcards" || kind === "quiz" ? (
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <CompactSelect title={kind === "quiz" ? "问题数量" : "卡片数量"} value={amount} onChange={setAmount} options={["更少", "标准（默认）", "更多"]} />
+          <CompactSelect title="难度" value={difficulty} onChange={setDifficulty} options={["简单", "中等（默认）", "困难"]} />
+        </div>
+      ) : null}
+      <textarea
+        className="custom-popover-textarea"
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        placeholder={`主题应该是什么？例如：围绕“${artifactLabel(kind)}”只生成传输层相关内容`}
+        autoFocus
+      />
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" className="custom-popover-secondary" onClick={onClose}>取消</button>
+        <button className="custom-popover-primary">生成</button>
+      </div>
+    </form>
+  );
+}
+
+function CompactSelect({
+  title,
+  value,
+  onChange,
+  options,
+}: {
+  title: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+}) {
+  return (
+    <label className="grid gap-1 text-xs font-medium text-[#5f6368]">
+      {title}
+      <select className="custom-popover-select" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => <option key={option}>{option}</option>)}
+      </select>
+    </label>
   );
 }
 

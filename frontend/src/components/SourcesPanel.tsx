@@ -25,7 +25,7 @@ export function SourcesPanel({
   onSearchInput: (value: string) => void;
   onUpload: (file: File) => void;
   onSearch: () => void;
-  onAddCandidate: (candidate: WebCandidate) => void;
+  onAddCandidate: (candidate: WebCandidate) => Promise<void> | void;
   onAsk: (message: string) => void;
   collapsed: boolean;
   onCollapse: () => void;
@@ -33,7 +33,10 @@ export function SourcesPanel({
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
+  const [selectedUrls, setSelectedUrls] = useState<Set<string> | null>(null);
   const openSource = sources.find((source) => source.id === openSourceId);
+  const selectedCount = selectedUrls ? selectedUrls.size : searchResults.length;
+  const allSelected = searchResults.length > 0 && selectedCount === searchResults.length;
 
   function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -44,6 +47,26 @@ export function SourcesPanel({
   function submit(event: FormEvent) {
     event.preventDefault();
     onSearch();
+  }
+
+  function toggleCandidate(url: string) {
+    setSelectedUrls((current) => {
+      const next = new Set(current ?? searchResults.map((item) => item.url));
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedUrls((current) => (current ? null : new Set()));
+  }
+
+  async function addSelected() {
+    const selected = selectedUrls ? searchResults.filter((item) => selectedUrls.has(item.url)) : searchResults;
+    for (const item of selected) {
+      await onAddCandidate(item);
+    }
   }
 
   if (collapsed) {
@@ -91,28 +114,46 @@ export function SourcesPanel({
 
         <div className="web-source-card">
           <p className="text-sm font-medium text-[#3c4043]">在网络中搜索新来源</p>
-          <form className="mt-4 flex items-center gap-2" onSubmit={submit}>
-            <button className="mini-source-button" type="button" title="选择范围">🌐⌄</button>
-            <button className="mini-source-button" type="button" title="搜索方式">⌕⌄</button>
+          <form className="web-search-form" onSubmit={submit}>
+            <button className="mini-source-button" type="button" title="选择范围">🌐 Web⌄</button>
+            <button className="mini-source-button" type="button" title="搜索方式">⌕ Fast Research⌄</button>
             <input
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[#9aa0a6]"
+              className="web-search-input"
               value={searchInput}
               onChange={(event) => onSearchInput(event.target.value)}
+              placeholder="输入关键词、问题或知识点"
             />
-            <button className="search-round-button" title="搜索补充来源">⌕</button>
+            <button className="search-round-button" title="搜索补充来源" aria-label="搜索补充来源">⌕</button>
           </form>
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {searchResults.length ? (
-          <div className="mb-3 rounded-xl border border-[#d9dfec] bg-[#f6f8fc] p-2">
-            <div className="mb-2 px-1 text-xs font-semibold text-[#50627f]">搜索候选</div>
+          <div className="search-results-panel">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[#202124]">搜索候选来源</p>
+                <p className="text-xs text-[#6f7785]">勾选后加入当前课程知识库</p>
+              </div>
+              <button className="search-select-all" onClick={toggleAll}>
+                全选 <span className={allSelected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
+              </button>
+            </div>
             <div className="space-y-2">
               {searchResults.map((item) => (
-                <SearchCandidate key={item.url} item={item} onAdd={() => onAddCandidate(item)} />
+                <SearchCandidate
+                  key={item.url}
+                  item={item}
+                  selected={selectedUrls ? selectedUrls.has(item.url) : true}
+                  onToggle={() => toggleCandidate(item.url)}
+                  onAdd={() => onAddCandidate(item)}
+                />
               ))}
             </div>
+            <button className="add-selected-source" onClick={() => void addSelected()} disabled={!selectedCount}>
+              加入所选来源
+            </button>
           </div>
         ) : null}
 
@@ -155,16 +196,32 @@ function CollapsedSources({
   );
 }
 
-function SearchCandidate({ item, onAdd }: { item: WebCandidate; onAdd: () => void }) {
+function SearchCandidate({
+  item,
+  selected,
+  onToggle,
+  onAdd,
+}: {
+  item: WebCandidate;
+  selected: boolean;
+  onToggle: () => void;
+  onAdd: () => void;
+}) {
   return (
-    <div className="rounded-lg border border-[#d8deea] bg-white p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold leading-5">{item.title}</p>
-        <button className="shrink-0 rounded-md bg-[#e8eef9] px-2 py-1 text-xs font-semibold text-[#315482]" onClick={onAdd}>
+    <div className="search-candidate">
+      <button className="search-candidate-check" onClick={onToggle} aria-label={`选择 ${item.title}`}>
+        <span className={selected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-sm font-semibold leading-5 text-[#202124]">{item.title}</p>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#6f7785]">{item.snippet}</p>
+        <p className="mt-1 truncate text-[11px] text-[#8a94a6]">{item.url}</p>
+      </div>
+      <div className="flex shrink-0 items-start">
+        <button className="single-add-source" onClick={onAdd}>
           加入
         </button>
       </div>
-      <p className="mt-1 text-xs leading-5 text-[#706b64]">{item.snippet}</p>
     </div>
   );
 }

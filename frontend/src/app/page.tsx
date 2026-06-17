@@ -155,7 +155,7 @@ export default function Home() {
             onSearchInput={setSearchInput}
             onUpload={(file) => void upload(file)}
             onSearch={() => void search()}
-            onAddCandidate={(candidate) => void addCandidate(candidate)}
+            onAddCandidate={(candidate) => addCandidate(candidate)}
             onAsk={(message) => void sendMessage(message)}
             collapsed={sourcesCollapsed}
             onCollapse={() => setSourcesCollapsed(true)}
