@@ -30,6 +30,7 @@ from .schemas import (
     WorkspaceState,
 )
 from .store import JsonStore
+from .web_ingest import WebIngestor
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,17 @@ def refresh_stale_source_guides(state: WorkspaceState) -> WorkspaceState:
     for source in state.sources:
         if source.status != "ready" or not source.chunks:
             continue
+        if not source.content_length:
+            source.content_length = sum(len(chunk.text) for chunk in source.chunks)
+            changed = True
+        if source.kind == "file" and source.extraction_method == "unknown":
+            source.extraction_method = "file"
+            source.extraction_status = "complete" if source.content_length >= 800 else "partial"
+            changed = True
+        if source.kind == "seed" and source.extraction_method == "unknown":
+            source.extraction_method = "seed"
+            source.extraction_status = "complete"
+            changed = True
         if not source.summary or "主要围绕" in source.summary or "代表内容" in source.summary:
             source.summary = generate_source_guide(source.chunks, source.title)
             changed = True
@@ -71,6 +83,9 @@ def ensure_seed() -> WorkspaceState:
         kind="seed",
         status="ready",
         summary=generate_source_guide(chunks, "计算机网络种子知识库"),
+        extraction_status="complete",
+        extraction_method="seed",
+        content_length=len(COMPUTER_NETWORK_SEED.strip()),
         chunks=chunks,
     )
     state.sources.append(seed)
@@ -114,6 +129,9 @@ async def upload_source(file: UploadFile = File(...)):
         source.chunks = chunk_text(text, source.id, source.title)
         source.status = "vectorizing"
         source.summary = generate_source_guide(source.chunks, source.title)
+        source.extraction_status = "complete" if len(text) >= 800 else "partial"
+        source.extraction_method = "file"
+        source.content_length = len(text)
         source.status = "ready"
         state.artifacts.insert(0, ResourceAgent().generate(state, "summary"))
     except Exception as exc:
@@ -131,9 +149,8 @@ def search_web(request: ChatRequest):
 def add_web_source(request: AddWebSourceRequest):
     state = ensure_seed()
     source_id = make_id("source")
-    search_agent = WebSearchAgent()
-    fetched = search_agent.fetch_page_text(request.url)
-    content = fetched or request.content
+    extraction = WebIngestor().ingest(request.url, request.content)
+    content = extraction.text or request.content
     chunks = chunk_text(content, source_id, request.title)
     source = Source(
         id=source_id,
@@ -142,6 +159,9 @@ def add_web_source(request: AddWebSourceRequest):
         status="ready",
         url=request.url,
         summary=generate_source_guide(chunks, request.title),
+        extraction_status=extraction.extraction_status,
+        extraction_method=extraction.extraction_method,
+        content_length=extraction.content_length,
         chunks=chunks,
     )
     state.sources.insert(0, source)

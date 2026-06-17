@@ -22,6 +22,7 @@ from .schemas import (
     SourceChunk,
     WorkspaceState,
 )
+from .web_ingest import WebIngestor
 
 
 COMPUTER_NETWORK_SEED = """
@@ -596,6 +597,8 @@ class WebSearchAgent:
                     f"{topic} 是计算机网络课程的重要主题。学习时应关注基本概念、协议流程、"
                     "典型应用场景、常见误区以及与其他网络层次的关系。"
                 ),
+                "domain": "example.edu.cn",
+                "source_provider": "demo",
             }
             for index, topic in enumerate(topics[:5])
         ]
@@ -611,7 +614,11 @@ class WebSearchAgent:
 
             data = json.loads(urlopen(req, timeout=12).read().decode("utf-8", errors="ignore"))
             items = data.get("results", [])[:6]
-            return [self._candidate(item.get("title", ""), item.get("url", ""), item.get("content", "")) for item in items if item.get("url")]
+            return [
+                self._candidate(item.get("title", ""), item.get("url", ""), item.get("content", ""), "searxng")
+                for item in items
+                if item.get("url")
+            ]
         except Exception:
             return []
 
@@ -643,20 +650,22 @@ class WebSearchAgent:
             snippet = self._strip_html(snippet_html)
             target = self._normalize_duckduckgo_url(unescape(href))
             if target:
-                results.append(self._candidate(title, target, snippet))
+                results.append(self._candidate(title, target, snippet, "duckduckgo"))
         return results
 
-    def _candidate(self, title: str, url: str, snippet: str) -> dict:
+    def _candidate(self, title: str, url: str, snippet: str, provider: str = "demo") -> dict:
         content = "\n".join(part for part in [title, snippet, url] if part)
         return {
             "title": title or url,
             "url": url,
             "snippet": snippet or content[:160],
             "content": content or snippet or title,
+            "domain": self._domain(url),
+            "source_provider": provider,
         }
 
     def fetch_page_text(self, url: str) -> str:
-        return self._fetch_page_text(url)
+        return WebIngestor().ingest(url).text
 
     def _normalize_duckduckgo_url(self, href: str) -> str:
         if href.startswith("//duckduckgo.com/l/?"):
@@ -669,12 +678,9 @@ class WebSearchAgent:
         text = re.sub(r"<.*?>", "", value, flags=re.S)
         return unescape(re.sub(r"\s+", " ", text)).strip()
 
+    def _domain(self, url: str) -> str:
+        parsed = urlparse(url)
+        return parsed.netloc.replace("www.", "")
+
     def _fetch_page_text(self, url: str) -> str:
-        try:
-            req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            raw = urlopen(req, timeout=8).read(400_000).decode("utf-8", errors="ignore")
-            raw = re.sub(r"(?is)<script.*?</script>|<style.*?</style>|<noscript.*?</noscript>", " ", raw)
-            text = self._strip_html(raw)
-            return text[:5000]
-        except Exception:
-            return ""
+        return WebIngestor().ingest(url).text

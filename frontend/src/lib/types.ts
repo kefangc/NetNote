@@ -13,6 +13,9 @@ export type Source = {
   summary: string;
   url?: string;
   error?: string;
+  extraction_status: "complete" | "partial" | "fallback" | "failed" | "unknown";
+  extraction_method: "jina_reader" | "trafilatura" | "html_fallback" | "search_snippet" | "file" | "seed" | "unknown";
+  content_length: number;
   chunks: { id: string; text: string; location: string; keywords: string[] }[];
 };
 
@@ -58,6 +61,8 @@ export type WebCandidate = {
   url: string;
   snippet: string;
   content: string;
+  domain: string;
+  source_provider: string;
 };
 
 export type QuizQuestion = {

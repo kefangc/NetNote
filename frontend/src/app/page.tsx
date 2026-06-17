@@ -56,6 +56,7 @@ export default function Home() {
   async function search() {
     if (!searchInput.trim()) return;
     setBusy("正在搜索补充来源");
+    setSearchResults([]);
     try {
       const data = await searchWebSource(searchInput);
       setSearchResults(data.items);
@@ -70,9 +71,9 @@ export default function Home() {
     setBusy("正在加入网络来源");
     try {
       setWorkspace(await addWebSource(candidate));
-      setSearchResults((items) => items.filter((item) => item.url !== candidate.url));
     } catch (err) {
       setError(err instanceof Error ? err.message : "加入来源失败");
+      throw err;
     } finally {
       setBusy(null);
     }
@@ -152,9 +153,11 @@ export default function Home() {
             sources={workspace?.sources ?? []}
             searchInput={searchInput}
             searchResults={searchResults}
+            busy={busy}
             onSearchInput={setSearchInput}
             onUpload={(file) => void upload(file)}
             onSearch={() => void search()}
+            onClearSearch={() => setSearchResults([])}
             onAddCandidate={(candidate) => addCandidate(candidate)}
             onAsk={(message) => void sendMessage(message)}
             collapsed={sourcesCollapsed}

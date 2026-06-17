@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useRef } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef } from "react";
 import { useState } from "react";
 import { CollapseButton, PanelHeader, SplitPanelIcon } from "./Common";
 import { Markdown } from "./Markdown";
@@ -10,6 +10,7 @@ export function SourcesPanel({
   sources,
   searchInput,
   searchResults,
+  busy,
   onSearchInput,
   onUpload,
   onSearch,
@@ -22,6 +23,7 @@ export function SourcesPanel({
   sources: Source[];
   searchInput: string;
   searchResults: WebCandidate[];
+  busy: string | null;
   onSearchInput: (value: string) => void;
   onUpload: (file: File) => void;
   onSearch: () => void;
@@ -34,9 +36,30 @@ export function SourcesPanel({
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string> | null>(null);
+  const [candidateStatus, setCandidateStatus] = useState<Record<string, "adding" | "added" | "failed">>({});
+  const [researchStep, setResearchStep] = useState(0);
   const openSource = sources.find((source) => source.id === openSourceId);
-  const selectedCount = selectedUrls ? selectedUrls.size : searchResults.length;
+  const isSearching = busy === "正在搜索补充来源";
+  const isAdding = busy === "正在加入网络来源";
+  const hasCompletedResearch = searchResults.length > 0 && !isSearching;
+  const visibleResearchStep = isSearching || isAdding ? Math.max(researchStep, 1) : 0;
+  const addableResults = searchResults.filter((item) => candidateStatus[item.url] !== "added");
+  const selectedCount = selectedUrls
+    ? addableResults.filter((item) => selectedUrls.has(item.url)).length
+    : addableResults.length;
   const allSelected = searchResults.length > 0 && selectedCount === searchResults.length;
+  const resultStats = useMemo(() => summarizeSearchResults(searchResults), [searchResults]);
+
+  useEffect(() => {
+    if (!isSearching && !isAdding) {
+      return;
+    }
+    const maxStep = isAdding ? 5 : 4;
+    const timer = window.setInterval(() => {
+      setResearchStep((current) => Math.min(current + 1, maxStep));
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [isAdding, isSearching, searchResults.length]);
 
   function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -46,6 +69,9 @@ export function SourcesPanel({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    setCandidateStatus({});
+    setSelectedUrls(null);
+    setResearchStep(1);
     onSearch();
   }
 
@@ -63,9 +89,19 @@ export function SourcesPanel({
   }
 
   async function addSelected() {
-    const selected = selectedUrls ? searchResults.filter((item) => selectedUrls.has(item.url)) : searchResults;
+    const selected = selectedUrls ? addableResults.filter((item) => selectedUrls.has(item.url)) : addableResults;
     for (const item of selected) {
+      await addCandidate(item);
+    }
+  }
+
+  async function addCandidate(item: WebCandidate) {
+    setCandidateStatus((current) => ({ ...current, [item.url]: "adding" }));
+    try {
       await onAddCandidate(item);
+      setCandidateStatus((current) => ({ ...current, [item.url]: "added" }));
+    } catch {
+      setCandidateStatus((current) => ({ ...current, [item.url]: "failed" }));
     }
   }
 
@@ -129,6 +165,22 @@ export function SourcesPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {isSearching || isAdding ? (
+          <ResearchProgressCard step={visibleResearchStep} isAdding={isAdding} />
+        ) : null}
+
+        {hasCompletedResearch ? (
+          <ResearchCompleteCard
+            query={searchInput}
+            total={searchResults.length}
+            domains={resultStats.domains}
+            pdfCount={resultStats.pdfCount}
+            selectedCount={selectedCount}
+            onAdd={() => void addSelected()}
+            disabled={!selectedCount}
+          />
+        ) : null}
+
         {searchResults.length ? (
           <div className="search-results-panel">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -145,9 +197,10 @@ export function SourcesPanel({
                 <SearchCandidate
                   key={item.url}
                   item={item}
+                  status={candidateStatus[item.url]}
                   selected={selectedUrls ? selectedUrls.has(item.url) : true}
                   onToggle={() => toggleCandidate(item.url)}
-                  onAdd={() => onAddCandidate(item)}
+                  onAdd={() => void addCandidate(item)}
                 />
               ))}
             </div>
@@ -198,32 +251,144 @@ function CollapsedSources({
 
 function SearchCandidate({
   item,
+  status,
   selected,
   onToggle,
   onAdd,
 }: {
   item: WebCandidate;
+  status?: "adding" | "added" | "failed";
   selected: boolean;
   onToggle: () => void;
   onAdd: () => void;
 }) {
+  const disabled = status === "adding" || status === "added";
   return (
-    <div className="search-candidate">
-      <button className="search-candidate-check" onClick={onToggle} aria-label={`选择 ${item.title}`}>
+    <div className={`search-candidate ${status === "added" ? "search-candidate-added" : ""}`}>
+      <button className="search-candidate-check" onClick={onToggle} disabled={disabled} aria-label={`选择 ${item.title}`}>
         <span className={selected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
       </button>
       <div className="min-w-0 flex-1">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="candidate-domain">{item.domain || new URL(item.url).hostname}</span>
+          <span className="candidate-provider">{item.source_provider || "web"}</span>
+          {status ? <span className={`candidate-status candidate-status-${status}`}>{statusLabel(status)}</span> : null}
+        </div>
         <p className="line-clamp-2 text-sm font-semibold leading-5 text-[#202124]">{item.title}</p>
         <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#6f7785]">{item.snippet}</p>
         <p className="mt-1 truncate text-[11px] text-[#8a94a6]">{item.url}</p>
       </div>
       <div className="flex shrink-0 items-start">
-        <button className="single-add-source" onClick={onAdd}>
-          加入
+        <button className="single-add-source" onClick={onAdd} disabled={disabled}>
+          {status === "adding" ? "加入中" : status === "added" ? "已加入" : "加入"}
         </button>
       </div>
     </div>
   );
+}
+
+function ResearchProgressCard({ step, isAdding }: { step: number; isAdding: boolean }) {
+  const current = Math.max(1, Math.min(step, 5));
+  const text = isAdding
+    ? current >= 5 ? "正在导入来源..." : `已完成第 ${Math.min(current, 4)} 步/共 5 步`
+    : [
+        "正在规划...请留在此页面",
+        "已完成第 1 步/共 5 步",
+        "已完成第 2 步/共 5 步",
+        "正在研究网站...",
+        "正在整理候选来源...",
+      ][current - 1];
+  return (
+    <div className="research-progress-card">
+      <span className="research-spinner" />
+      <p>{text}</p>
+      <span className="research-stop-button">■</span>
+    </div>
+  );
+}
+
+function ResearchCompleteCard({
+  query,
+  total,
+  domains,
+  pdfCount,
+  selectedCount,
+  onAdd,
+  disabled,
+}: {
+  query: string;
+  total: number;
+  domains: string[];
+  pdfCount: number;
+  selectedCount: number;
+  onAdd: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <section className="research-complete-card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="research-complete-icon">⌕</span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-6">Deep Research 深度研究已完成！</p>
+            <p className="line-clamp-2 text-xs leading-5 text-[#5f6368]">{query || "网络来源发现"}</p>
+          </div>
+        </div>
+        <button className="research-look-button" type="button">查看</button>
+      </div>
+      <div className="research-complete-inner">
+        <div className="space-y-3">
+          {pdfCount ? (
+            <div className="research-summary-row">
+              <span className="research-file-icon research-file-pdf">PDF</span>
+              <div>
+                <p className="font-semibold">发现 {pdfCount} 个 PDF 来源</p>
+                <p className="text-xs text-[#5f6368]">可加入知识库后生成引用和摘要</p>
+              </div>
+            </div>
+          ) : null}
+          <div className="research-summary-row">
+            <span className="research-file-icon research-file-web">▣</span>
+            <div>
+              <p className="font-semibold">{total} 个热门来源</p>
+              <p className="line-clamp-2 text-xs text-[#5f6368]">{domains.slice(0, 4).join("、") || "来自网络搜索候选"}</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 text-[#5f6368]">
+            <button className="research-feedback-button" type="button">👍</button>
+            <button className="research-feedback-button" type="button">👎</button>
+          </div>
+          <button className="research-import-button" onClick={onAdd} disabled={disabled}>
+            ＋ 导入{selectedCount ? ` ${selectedCount}` : ""}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function summarizeSearchResults(items: WebCandidate[]) {
+  const domains = Array.from(new Set(items.map((item) => item.domain || safeDomain(item.url)).filter(Boolean)));
+  const pdfCount = items.filter((item) => item.url.toLowerCase().includes(".pdf") || item.title.toLowerCase().includes(".pdf")).length;
+  return { domains, pdfCount };
+}
+
+function safeDomain(url: string) {
+  try {
+    return new URL(url).hostname.replace("www.", "");
+  } catch {
+    return "";
+  }
+}
+
+function statusLabel(status: "adding" | "added" | "failed") {
+  return {
+    adding: "加入中",
+    added: "已加入",
+    failed: "失败",
+  }[status];
 }
 
 function SourceItem({ source, onClick }: { source: Source; onClick: () => void }) {
@@ -240,6 +405,10 @@ function SourceItem({ source, onClick }: { source: Source; onClick: () => void }
               {isReady ? "ready" : source.status}
             </span>
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <QualityPill source={source} />
+            {source.kind === "web" && source.content_length ? <span className="source-meta-chip">{source.content_length} 字</span> : null}
+          </div>
           <p className="mt-1 line-clamp-3 text-xs leading-5 text-[#716a61]">{source.error || source.summary}</p>
           <div className="mt-2 flex items-center gap-2 text-[11px] text-[#91887d]">
             <span>{source.kind}</span>
@@ -253,10 +422,11 @@ function SourceItem({ source, onClick }: { source: Source; onClick: () => void }
 }
 
 function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; onBack: () => void; onAsk: (message: string) => void; onCollapse: () => void }) {
+  const [expanded, setExpanded] = useState(false);
   const keywords = source.chunks.flatMap((chunk) => chunk.keywords).filter(Boolean);
   const uniqueKeywords = Array.from(new Set(keywords)).slice(0, 4);
   const guideText = source.summary || "这份来源已导入知识库。系统会围绕其中的核心概念、关键流程和易错点，为你生成问答、测验、抽认卡和思维导图。";
-  const content = source.chunks.map((chunk) => chunk.text).join("\n\n").trim();
+  const visibleChunks = expanded ? source.chunks : source.chunks.slice(0, 6);
 
   return (
     <aside className="panel flex min-h-0 flex-col source-detail-enter">
@@ -269,6 +439,17 @@ function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; o
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto bg-white p-6">
         <h2 className="mb-5 text-[28px] font-medium leading-tight tracking-[-0.02em]">{source.title}</h2>
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <QualityPill source={source} />
+          <span className="source-meta-chip">{source.extraction_method}</span>
+          <span className="source-meta-chip">{source.content_length || source.chunks.reduce((sum, chunk) => sum + chunk.text.length, 0)} 字</span>
+          <span className="source-meta-chip">{source.chunks.length} chunks</span>
+          {source.url ? (
+            <a className="source-open-link" href={source.url} target="_blank" rel="noreferrer">
+              打开原网页
+            </a>
+          ) : null}
+        </div>
         <section className="source-guide-card">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2 text-lg font-semibold">
@@ -295,16 +476,39 @@ function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; o
             </div>
           ) : null}
         </section>
-        <article className="mt-6 rounded-[18px] bg-white text-[17px] leading-8 text-[#2b2f33]">
-          {content ? (
-            content.split("\n\n").slice(0, 10).map((paragraph, index) => (
-              <p key={index} className="mb-5">{paragraph}</p>
+        <article className="mt-6 space-y-3 rounded-[18px] bg-white text-[15px] leading-7 text-[#2b2f33]">
+          {visibleChunks.length ? (
+            visibleChunks.map((chunk) => (
+              <section key={chunk.id} className="source-chunk-card">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-[#5f6368]">{chunk.location}</span>
+                  {chunk.keywords.length ? <span className="truncate text-[11px] text-[#8a94a6]">{chunk.keywords.slice(0, 4).join(" / ")}</span> : null}
+                </div>
+                <p className="whitespace-pre-wrap">{chunk.text}</p>
+              </section>
             ))
           ) : (
             <p>该来源暂无可预览文本。</p>
           )}
+          {source.chunks.length > 6 ? (
+            <button className="source-expand-button" onClick={() => setExpanded((value) => !value)}>
+              {expanded ? "收起" : `展开全部 ${source.chunks.length} 个片段`}
+            </button>
+          ) : null}
         </article>
       </div>
     </aside>
   );
+}
+
+function QualityPill({ source }: { source: Source }) {
+  const status = source.extraction_status || "unknown";
+  const label = {
+    complete: "完整正文",
+    partial: "部分正文",
+    fallback: "摘要兜底",
+    failed: "抓取失败",
+    unknown: source.kind === "file" ? "文件来源" : source.kind === "seed" ? "种子来源" : "未知质量",
+  }[status];
+  return <span className={`quality-pill quality-${status}`}>{label}</span>;
 }
