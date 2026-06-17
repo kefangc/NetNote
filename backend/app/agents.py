@@ -271,11 +271,11 @@ class ResourceAgent:
             "qa": "问答卡片",
             "reading": "拓展阅读",
         }
-        llm_data = self._generate_with_llm(kind, chunks, prompt)
+        llm_data = self._generate_with_llm(kind, state, chunks, prompt)
         if llm_data:
             data = llm_data
         elif kind == "summary":
-            data = self._summary(chunks)
+            data = self._summary(state, chunks)
         elif kind == "flashcards":
             data = {"cards": [card.model_dump() for card in self._flashcards(chunks)]}
         elif kind == "quiz":
@@ -290,13 +290,29 @@ class ResourceAgent:
             data = {"text": "未知生成类型"}
         return Artifact(id=make_id("artifact"), kind=kind, title=title_map.get(kind, "生成物"), data=data)
 
-    def _generate_with_llm(self, kind: str, chunks: list[SourceChunk], prompt: str | None) -> dict | None:
-        evidence = "\n\n".join(
-            f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[:1000]}"
-            for index, chunk in enumerate(chunks[:8], start=1)
-        )
+    def _generate_with_llm(self, kind: str, state: WorkspaceState, chunks: list[SourceChunk], prompt: str | None) -> dict | None:
+        if kind == "summary":
+            def source_note(source) -> str:
+                fallback = source.chunks[0].text[:220] if source.chunks else "暂无摘要"
+                return source.summary or fallback
+
+            source_notes = "\n".join(
+                f"- {source.title}：{source_note(source)}"
+                for source in state.sources
+                if source.status == "ready"
+            )
+            chunk_notes = "\n\n".join(
+                f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[:800]}"
+                for index, chunk in enumerate(chunks[:10], start=1)
+            )
+            evidence = f"来源摘要：\n{source_notes}\n\n代表片段：\n{chunk_notes}"
+        else:
+            evidence = "\n\n".join(
+                f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[:1000]}"
+                for index, chunk in enumerate(chunks[:8], start=1)
+            )
         schema = {
-            "summary": '{"overview":"...","key_concepts":["..."],"suggested_artifacts":["闪卡","测验","思维导图"]}',
+            "summary": '{"overview":"对所有来源的综合总结...","key_concepts":["..."],"suggested_artifacts":["闪卡","测验","思维导图"],"sources":[{"title":"...","summary":"该来源要点..."}]}',
             "flashcards": '{"cards":[{"front":"...","back":"...","topic":"..."}]}',
             "quiz": '{"questions":[{"stem":"...","options":[{"key":"A","text":"...","explanation":"..."},{"key":"B","text":"...","explanation":"..."},{"key":"C","text":"...","explanation":"..."},{"key":"D","text":"...","explanation":"..."}],"answer":"A","topic":"...","explanation":"..."}]}',
             "mindmap": '{"root":{"label":"计算机网络","detail":"...","children":[{"label":"...","detail":"...","children":[{"label":"...","detail":"...","children":[]}]}]}}',
@@ -331,10 +347,20 @@ class ResourceAgent:
 
     def _normalize_llm_data(self, kind: str, raw: dict, chunks: list[SourceChunk]) -> dict:
         if kind == "summary":
+            source_summaries = [
+                {
+                    "title": str(item.get("title", "")),
+                    "summary": str(item.get("summary", "")),
+                }
+                for item in raw.get("sources", [])
+                if isinstance(item, dict)
+            ]
             return {
                 "overview": str(raw.get("overview") or summarize_chunks(chunks, "当前知识库")),
                 "key_concepts": [str(item) for item in raw.get("key_concepts", [])][:12],
                 "suggested_artifacts": [str(item) for item in raw.get("suggested_artifacts", [])][:8],
+                "sources": source_summaries,
+                "manual": True,
             }
         if kind == "flashcards":
             cards = []
@@ -417,15 +443,31 @@ class ResourceAgent:
         chunks = [chunk for source in state.sources if source.status == "ready" for chunk in source.chunks]
         return chunks[:12]
 
-    def _summary(self, chunks: list[SourceChunk]) -> dict:
+    def _summary(self, state: WorkspaceState, chunks: list[SourceChunk]) -> dict:
         keywords = Counter()
         for chunk in chunks:
             keywords.update(chunk.keywords)
         top = [word for word, _ in keywords.most_common(10)]
+        ready_sources = [source for source in state.sources if source.status == "ready"]
+        source_summaries = [
+            {
+                "title": source.title,
+                "summary": source.summary or summarize_chunks(source.chunks, source.title),
+                "content_length": source.content_length,
+                "quality": source.extraction_status,
+            }
+            for source in ready_sources
+        ]
+        overview_lines = [
+            f"当前知识库共包含 {len(ready_sources)} 个可用来源。",
+            summarize_chunks(chunks, "所有来源"),
+        ]
         return {
-            "overview": summarize_chunks(chunks, "当前知识库"),
+            "overview": "\n\n".join(overview_lines),
             "key_concepts": top or ["OSI 模型", "TCP", "IP", "DNS", "HTTP"],
             "suggested_artifacts": ["闪卡", "测验", "思维导图", "问答卡片", "拓展阅读"],
+            "sources": source_summaries,
+            "manual": True,
         }
 
     def _flashcards(self, chunks: list[SourceChunk]) -> list[Flashcard]:

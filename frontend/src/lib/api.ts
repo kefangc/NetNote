@@ -39,6 +39,16 @@ export async function addWebSource(candidate: WebCandidate) {
   );
 }
 
+export async function addWebSources(items: WebCandidate[]) {
+  return asJson<Workspace>(
+    await fetch(`${API_BASE}/sources/add-web-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    }),
+  );
+}
+
 export async function generateArtifact(kind: ArtifactKind, prompt?: string) {
   return asJson<Artifact>(
     await fetch(`${API_BASE}/artifacts/generate`, {

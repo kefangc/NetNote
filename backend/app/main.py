@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -21,6 +22,7 @@ from .llm_client import get_llm_client
 from .parsers import chunk_text, parse_file
 from .schemas import (
     AddWebSourceRequest,
+    AddWebSourcesRequest,
     ChatRequest,
     FlashcardReviewRequest,
     GenerateArtifactRequest,
@@ -89,7 +91,6 @@ def ensure_seed() -> WorkspaceState:
         chunks=chunks,
     )
     state.sources.append(seed)
-    state.artifacts.append(ResourceAgent().generate(state, "summary"))
     state.profile.next_steps = ProfileAgent().recommend(state.profile)
     return store.save(state)
 
@@ -133,7 +134,6 @@ async def upload_source(file: UploadFile = File(...)):
         source.extraction_method = "file"
         source.content_length = len(text)
         source.status = "ready"
-        state.artifacts.insert(0, ResourceAgent().generate(state, "summary"))
     except Exception as exc:
         source.status = "failed"
         source.error = str(exc)
@@ -148,25 +148,66 @@ def search_web(request: ChatRequest):
 @app.post("/sources/add-web")
 def add_web_source(request: AddWebSourceRequest):
     state = ensure_seed()
-    source_id = make_id("source")
-    extraction = WebIngestor().ingest(request.url, request.content)
-    content = extraction.text or request.content
-    chunks = chunk_text(content, source_id, request.title)
-    source = Source(
-        id=source_id,
-        title=request.title,
-        kind="web",
-        status="ready",
-        url=request.url,
-        summary=generate_source_guide(chunks, request.title),
-        extraction_status=extraction.extraction_status,
-        extraction_method=extraction.extraction_method,
-        content_length=extraction.content_length,
-        chunks=chunks,
-    )
+    source = build_web_source(request)
     state.sources.insert(0, source)
-    state.artifacts.insert(0, ResourceAgent().generate(state, "summary"))
     return store.save(state)
+
+
+@app.post("/sources/add-web-batch")
+def add_web_sources(request: AddWebSourcesRequest):
+    if not request.items:
+        return ensure_seed()
+    items = request.items[:8]
+    max_workers = min(3, len(items))
+    sources: list[Source] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(build_web_source, item) for item in items]
+        for future in as_completed(futures):
+            sources.append(future.result())
+    state = ensure_seed()
+    existing_urls = {source.url for source in state.sources if source.url}
+    for source in reversed(sources):
+        if source.url and source.url in existing_urls:
+            continue
+        state.sources.insert(0, source)
+        if source.url:
+            existing_urls.add(source.url)
+    return store.save(state)
+
+
+def build_web_source(request: AddWebSourceRequest) -> Source:
+    source_id = make_id("source")
+    try:
+        extraction = WebIngestor().ingest(request.url, request.content)
+        content = extraction.text or request.content
+        chunks = chunk_text(content, source_id, request.title)
+        return Source(
+            id=source_id,
+            title=request.title,
+            kind="web",
+            status="ready",
+            url=request.url,
+            summary=generate_source_guide(chunks, request.title),
+            extraction_status=extraction.extraction_status,
+            extraction_method=extraction.extraction_method,
+            content_length=extraction.content_length or len(content),
+            chunks=chunks,
+        )
+    except Exception as exc:
+        chunks = chunk_text(request.content or request.title, source_id, request.title)
+        return Source(
+            id=source_id,
+            title=request.title,
+            kind="web",
+            status="ready" if chunks else "failed",
+            url=request.url,
+            summary=generate_source_guide(chunks, request.title) if chunks else request.content,
+            error=str(exc),
+            extraction_status="fallback" if chunks else "failed",
+            extraction_method="search_snippet" if chunks else "unknown",
+            content_length=sum(len(chunk.text) for chunk in chunks),
+            chunks=chunks,
+        )
 
 
 @app.post("/chat")
@@ -217,6 +258,8 @@ def chat(request: ChatRequest):
 def generate_artifact(request: GenerateArtifactRequest):
     state = ensure_seed()
     artifact = ResourceAgent().generate(state, request.kind, request.prompt)
+    if request.kind == "summary":
+        artifact.data["manual"] = True
     state.artifacts.insert(0, artifact)
     store.save(state)
     return artifact

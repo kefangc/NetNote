@@ -149,6 +149,10 @@ class AddWebSourceRequest(BaseModel):
     source_provider: str | None = None
 
 
+class AddWebSourcesRequest(BaseModel):
+    items: list[AddWebSourceRequest]
+
+
 class QuizSubmitRequest(BaseModel):
     artifact_id: str
     answers: dict[str, str]

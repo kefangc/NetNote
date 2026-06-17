@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .codex_video_frames/
+.playwright-cli/
 *.log
 *.err.log
 backend/data/workspace.json

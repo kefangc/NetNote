@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ArtifactDetail } from "./ArtifactViews";
 import { CollapseButton, GeneratingCard, PanelHeader, SplitPanelIcon } from "./Common";
 import { artifactIcon, artifactKinds, artifactLabel, studioStyle } from "@/lib/artifacts";
@@ -16,6 +16,7 @@ export function StudioPanel({
   collapsed,
   onCollapse,
   onExpand,
+  onOpenArtifactChange,
 }: {
   artifacts: Artifact[];
   profile?: Profile;
@@ -26,16 +27,25 @@ export function StudioPanel({
   collapsed: boolean;
   onCollapse: () => void;
   onExpand: () => void;
+  onOpenArtifactChange?: (artifact: Artifact | null) => void;
 }) {
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
   const [customKind, setCustomKind] = useState<ArtifactKind | null>(null);
-  const openArtifact = useMemo(() => artifacts.find((artifact) => artifact.id === openArtifactId), [artifacts, openArtifactId]);
+  const visibleArtifacts = useMemo(
+    () => artifacts.filter((artifact) => artifact.kind !== "summary" || artifact.data.manual === true),
+    [artifacts],
+  );
+  const openArtifact = useMemo(() => visibleArtifacts.find((artifact) => artifact.id === openArtifactId), [visibleArtifacts, openArtifactId]);
+
+  useEffect(() => {
+    onOpenArtifactChange?.(openArtifact ?? null);
+  }, [onOpenArtifactChange, openArtifact]);
 
   if (collapsed) {
     return (
       <>
         <CollapsedStudio
-          artifacts={artifacts}
+          artifacts={visibleArtifacts}
           onExpand={onExpand}
           onGenerate={(kind) => onGenerate(kind)}
           onCustomize={(kind) => setCustomKind(kind)}
@@ -72,7 +82,7 @@ export function StudioPanel({
           <CollapseButton label="收起 Studio" onClick={onCollapse} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto bg-white p-4">
-          <ArtifactDetail artifact={openArtifact} profile={profile} onAsk={onAsk} onRefresh={onRefresh} />
+          <ArtifactDetail artifact={openArtifact} profile={profile} onAsk={onAsk} onRefresh={onRefresh} onClose={() => setOpenArtifactId(null)} />
         </div>
       </aside>
     );
@@ -107,7 +117,7 @@ export function StudioPanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {busy?.startsWith("正在生成") ? <GeneratingCard label={busy} /> : null}
         <div className="space-y-2">
-          {artifacts.map((artifact) => (
+        {visibleArtifacts.map((artifact) => (
             <ArtifactListItem key={artifact.id} artifact={artifact} onClick={() => setOpenArtifactId(artifact.id)} />
           ))}
         </div>

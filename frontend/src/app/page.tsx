@@ -6,14 +6,14 @@ import { SourcesPanel } from "@/components/SourcesPanel";
 import { StudioPanel } from "@/components/StudioPanel";
 import { IconButton, StatusPill } from "@/components/Common";
 import {
-  addWebSource,
+  addWebSources,
   generateArtifact,
   getWorkspace,
   searchWebSource,
   streamChat,
   uploadSource,
 } from "@/lib/api";
-import type { ArtifactKind, Message, WebCandidate, Workspace } from "@/lib/types";
+import type { Artifact, ArtifactKind, Message, WebCandidate, Workspace } from "@/lib/types";
 import { artifactLabel } from "@/lib/artifacts";
 
 export default function Home() {
@@ -26,6 +26,13 @@ export default function Home() {
   const [streamingAnswer, setStreamingAnswer] = useState("");
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
   const [studioCollapsed, setStudioCollapsed] = useState(false);
+  const [openStudioArtifact, setOpenStudioArtifact] = useState<Artifact | null>(null);
+  const studioWide = !studioCollapsed && openStudioArtifact?.kind === "mindmap";
+  const gridColumns = studioCollapsed
+    ? `${sourcesCollapsed ? "64px" : "350px"} minmax(460px, 1fr) 76px`
+    : studioWide
+      ? `${sourcesCollapsed ? "64px" : "330px"} minmax(360px, 1fr) minmax(560px, 42vw)`
+      : `${sourcesCollapsed ? "64px" : "350px"} minmax(460px, 1fr) 350px`;
 
   async function refresh() {
     try {
@@ -67,12 +74,13 @@ export default function Home() {
     }
   }
 
-  async function addCandidate(candidate: WebCandidate) {
+  async function addCandidates(candidates: WebCandidate[]) {
+    if (!candidates.length) return;
     setBusy("正在加入网络来源");
     try {
-      setWorkspace(await addWebSource(candidate));
+      setWorkspace(await addWebSources(candidates));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加入来源失败");
+      setError(err instanceof Error ? err.message : "批量加入来源失败");
       throw err;
     } finally {
       setBusy(null);
@@ -146,7 +154,7 @@ export default function Home() {
         <div
           className="grid min-h-0 flex-1 gap-4 px-4 pb-4"
           style={{
-            gridTemplateColumns: `${sourcesCollapsed ? "64px" : "350px"} minmax(460px, 1fr) ${studioCollapsed ? "76px" : "350px"}`,
+            gridTemplateColumns: gridColumns,
           }}
         >
           <SourcesPanel
@@ -158,7 +166,7 @@ export default function Home() {
             onUpload={(file) => void upload(file)}
             onSearch={() => void search()}
             onClearSearch={() => setSearchResults([])}
-            onAddCandidate={(candidate) => addCandidate(candidate)}
+            onAddCandidates={(candidates) => addCandidates(candidates)}
             onAsk={(message) => void sendMessage(message)}
             collapsed={sourcesCollapsed}
             onCollapse={() => setSourcesCollapsed(true)}
@@ -182,6 +190,7 @@ export default function Home() {
             collapsed={studioCollapsed}
             onCollapse={() => setStudioCollapsed(true)}
             onExpand={() => setStudioCollapsed(false)}
+            onOpenArtifactChange={setOpenStudioArtifact}
           />
         </div>
       </div>

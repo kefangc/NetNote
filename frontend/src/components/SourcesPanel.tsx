@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef } from "react";
 import { useState } from "react";
 import { CollapseButton, PanelHeader, SplitPanelIcon } from "./Common";
 import { Markdown } from "./Markdown";
@@ -14,7 +14,8 @@ export function SourcesPanel({
   onSearchInput,
   onUpload,
   onSearch,
-  onAddCandidate,
+  onClearSearch,
+  onAddCandidates,
   onAsk,
   collapsed,
   onCollapse,
@@ -27,7 +28,8 @@ export function SourcesPanel({
   onSearchInput: (value: string) => void;
   onUpload: (file: File) => void;
   onSearch: () => void;
-  onAddCandidate: (candidate: WebCandidate) => Promise<void> | void;
+  onClearSearch: () => void;
+  onAddCandidates: (candidates: WebCandidate[]) => Promise<void> | void;
   onAsk: (message: string) => void;
   collapsed: boolean;
   onCollapse: () => void;
@@ -37,6 +39,7 @@ export function SourcesPanel({
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string> | null>(null);
   const [candidateStatus, setCandidateStatus] = useState<Record<string, "adding" | "added" | "failed">>({});
+  const [researchModeOpen, setResearchModeOpen] = useState(false);
   const [researchStep, setResearchStep] = useState(0);
   const openSource = sources.find((source) => source.id === openSourceId);
   const isSearching = busy === "正在搜索补充来源";
@@ -44,11 +47,11 @@ export function SourcesPanel({
   const hasCompletedResearch = searchResults.length > 0 && !isSearching;
   const visibleResearchStep = isSearching || isAdding ? Math.max(researchStep, 1) : 0;
   const addableResults = searchResults.filter((item) => candidateStatus[item.url] !== "added");
+  const addedCount = searchResults.filter((item) => candidateStatus[item.url] === "added").length;
   const selectedCount = selectedUrls
     ? addableResults.filter((item) => selectedUrls.has(item.url)).length
     : addableResults.length;
-  const allSelected = searchResults.length > 0 && selectedCount === searchResults.length;
-  const resultStats = useMemo(() => summarizeSearchResults(searchResults), [searchResults]);
+  const allSelected = addableResults.length > 0 && selectedCount === addableResults.length;
 
   useEffect(() => {
     if (!isSearching && !isAdding) {
@@ -72,7 +75,15 @@ export function SourcesPanel({
     setCandidateStatus({});
     setSelectedUrls(null);
     setResearchStep(1);
+    setResearchModeOpen(false);
     onSearch();
+  }
+
+  function clearResearch() {
+    setCandidateStatus({});
+    setSelectedUrls(null);
+    setResearchStep(0);
+    onClearSearch();
   }
 
   function toggleCandidate(url: string) {
@@ -90,18 +101,25 @@ export function SourcesPanel({
 
   async function addSelected() {
     const selected = selectedUrls ? addableResults.filter((item) => selectedUrls.has(item.url)) : addableResults;
-    for (const item of selected) {
-      await addCandidate(item);
-    }
-  }
-
-  async function addCandidate(item: WebCandidate) {
-    setCandidateStatus((current) => ({ ...current, [item.url]: "adding" }));
+    if (!selected.length) return;
+    setCandidateStatus((current) => {
+      const next = { ...current };
+      for (const item of selected) next[item.url] = "adding";
+      return next;
+    });
     try {
-      await onAddCandidate(item);
-      setCandidateStatus((current) => ({ ...current, [item.url]: "added" }));
+      await onAddCandidates(selected);
+      setCandidateStatus((current) => {
+        const next = { ...current };
+        for (const item of selected) next[item.url] = "added";
+        return next;
+      });
     } catch {
-      setCandidateStatus((current) => ({ ...current, [item.url]: "failed" }));
+      setCandidateStatus((current) => {
+        const next = { ...current };
+        for (const item of selected) next[item.url] = "failed";
+        return next;
+      });
     }
   }
 
@@ -149,17 +167,48 @@ export function SourcesPanel({
         </button>
 
         <div className="web-source-card">
-          <p className="text-sm font-medium text-[#3c4043]">在网络中搜索新来源</p>
           <form className="web-search-form" onSubmit={submit}>
-            <button className="mini-source-button" type="button" title="选择范围">🌐 Web⌄</button>
-            <button className="mini-source-button" type="button" title="搜索方式">⌕ Fast Research⌄</button>
-            <input
-              className="web-search-input"
-              value={searchInput}
-              onChange={(event) => onSearchInput(event.target.value)}
-              placeholder="输入关键词、问题或知识点"
-            />
-            <button className="search-round-button" title="搜索补充来源" aria-label="搜索补充来源">⌕</button>
+            <div className="web-search-input-row web-search-input-row-primary">
+              <input
+                className="web-search-input web-search-input-primary"
+                value={searchInput}
+                onChange={(event) => onSearchInput(event.target.value)}
+                placeholder="在网络中搜索新来源"
+              />
+              <button className="search-round-button" title="搜索补充来源" aria-label="搜索补充来源">⌕</button>
+            </div>
+            <div className="web-search-controls">
+              <button className="mini-source-button" type="button" title="选择范围">🌐 Web⌄</button>
+              <div className="research-mode-wrap">
+                <button
+                  className="mini-source-button"
+                  type="button"
+                  title="搜索方式"
+                  aria-expanded={researchModeOpen}
+                  onClick={() => setResearchModeOpen((open) => !open)}
+                >
+                  ⌕ Fast Research⌄
+                </button>
+                {researchModeOpen ? (
+                  <div className="research-mode-menu">
+                    <button type="button" className="research-mode-option" onClick={() => setResearchModeOpen(false)}>
+                      <span className="research-mode-icon">⌕</span>
+                      <span>
+                        <strong>Fast Research</strong>
+                        <small>非常适合快速获得结果</small>
+                      </span>
+                    </button>
+                    <button type="button" className="research-mode-option" onClick={() => setResearchModeOpen(false)}>
+                      <span className="research-mode-icon">◎</span>
+                      <span>
+                        <strong>Deep Research</strong>
+                        <small>获得深入报告和结果</small>
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </form>
         </div>
       </div>
@@ -170,44 +219,18 @@ export function SourcesPanel({
         ) : null}
 
         {hasCompletedResearch ? (
-          <ResearchCompleteCard
-            query={searchInput}
-            total={searchResults.length}
-            domains={resultStats.domains}
-            pdfCount={resultStats.pdfCount}
+          <InlineSearchResults
+            items={searchResults}
+            selectedUrls={selectedUrls}
+            candidateStatus={candidateStatus}
             selectedCount={selectedCount}
+            addedCount={addedCount}
+            allSelected={allSelected}
+            onToggle={toggleCandidate}
+            onToggleAll={toggleAll}
             onAdd={() => void addSelected()}
-            disabled={!selectedCount}
+            onClear={clearResearch}
           />
-        ) : null}
-
-        {searchResults.length ? (
-          <div className="search-results-panel">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-[#202124]">搜索候选来源</p>
-                <p className="text-xs text-[#6f7785]">勾选后加入当前课程知识库</p>
-              </div>
-              <button className="search-select-all" onClick={toggleAll}>
-                全选 <span className={allSelected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
-              </button>
-            </div>
-            <div className="space-y-2">
-              {searchResults.map((item) => (
-                <SearchCandidate
-                  key={item.url}
-                  item={item}
-                  status={candidateStatus[item.url]}
-                  selected={selectedUrls ? selectedUrls.has(item.url) : true}
-                  onToggle={() => toggleCandidate(item.url)}
-                  onAdd={() => void addCandidate(item)}
-                />
-              ))}
-            </div>
-            <button className="add-selected-source" onClick={() => void addSelected()} disabled={!selectedCount}>
-              加入所选来源
-            </button>
-          </div>
         ) : null}
 
         <div className="space-y-2">
@@ -249,42 +272,79 @@ function CollapsedSources({
   );
 }
 
-function SearchCandidate({
-  item,
-  status,
-  selected,
+function InlineSearchResults({
+  items,
+  selectedUrls,
+  candidateStatus,
+  selectedCount,
+  addedCount,
+  allSelected,
   onToggle,
+  onToggleAll,
   onAdd,
+  onClear,
 }: {
-  item: WebCandidate;
-  status?: "adding" | "added" | "failed";
-  selected: boolean;
-  onToggle: () => void;
+  items: WebCandidate[];
+  selectedUrls: Set<string> | null;
+  candidateStatus: Record<string, "adding" | "added" | "failed">;
+  selectedCount: number;
+  addedCount: number;
+  allSelected: boolean;
+  onToggle: (url: string) => void;
+  onToggleAll: () => void;
   onAdd: () => void;
+  onClear: () => void;
 }) {
-  const disabled = status === "adding" || status === "added";
+  const addableCount = items.filter((item) => candidateStatus[item.url] !== "added").length;
+  const allImported = items.length > 0 && addableCount === 0;
   return (
-    <div className={`search-candidate ${status === "added" ? "search-candidate-added" : ""}`}>
-      <button className="search-candidate-check" onClick={onToggle} disabled={disabled} aria-label={`选择 ${item.title}`}>
-        <span className={selected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex flex-wrap items-center gap-2">
-          <span className="candidate-domain">{item.domain || new URL(item.url).hostname}</span>
-          <span className="candidate-provider">{item.source_provider || "web"}</span>
-          {status ? <span className={`candidate-status candidate-status-${status}`}>{statusLabel(status)}</span> : null}
+    <section className="inline-search-results">
+      {allImported ? (
+        <div className="search-import-complete">
+          <span className="search-discover-icon">✧</span>
+          <span className="flex-1">已导入 {addedCount} 个来源</span>
+          <button type="button" onClick={onClear}>完成</button>
         </div>
-        <p className="line-clamp-2 text-sm font-semibold leading-5 text-[#202124]">{item.title}</p>
-        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#6f7785]">{item.snippet}</p>
-        <p className="mt-1 truncate text-[11px] text-[#8a94a6]">{item.url}</p>
+      ) : (
+        <div className="search-inline-toolbar">
+          <span className="search-discover-icon">✧</span>
+          <span className="min-w-0 flex-1" />
+          <button className="search-inline-action" type="button" onClick={onClear}>删除</button>
+          <button className="search-inline-import" type="button" onClick={onAdd} disabled={!selectedCount}>导入 {selectedCount}</button>
+          <button className="search-select-all" onClick={onToggleAll} disabled={!addableCount}>
+            全选 <span className={allSelected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
+          </button>
+        </div>
+      )}
+      <div className="search-inline-list">
+        {items.map((item) => {
+          const selected = selectedUrls ? selectedUrls.has(item.url) : true;
+          const status = candidateStatus[item.url];
+          return (
+            <div className="search-inline-row" key={item.url}>
+              <span className="search-favicon">{faviconLabel(item)}</span>
+              <a className="search-inline-title" href={item.url} target="_blank" rel="noreferrer" title={item.title}>
+                {item.title}
+              </a>
+              {status ? <span className={`candidate-status candidate-status-${status}`}>{statusLabel(status)}</span> : null}
+              <button className="search-candidate-check" onClick={() => onToggle(item.url)} disabled={status === "adding" || status === "added"} aria-label={`选择 ${item.title}`}>
+                <span className={selected ? "checked-box checked-box-on" : "checked-box"}>✓</span>
+              </button>
+            </div>
+          );
+        })}
       </div>
-      <div className="flex shrink-0 items-start">
-        <button className="single-add-source" onClick={onAdd} disabled={disabled}>
-          {status === "adding" ? "加入中" : status === "added" ? "已加入" : "加入"}
-        </button>
-      </div>
-    </div>
+    </section>
   );
+}
+
+function faviconLabel(item: WebCandidate) {
+  const domain = (item.domain || safeDomain(item.url)).toLowerCase();
+  if (item.url.toLowerCase().includes(".pdf") || item.title.toLowerCase().includes("pdf")) return "PDF";
+  if (domain.includes("wikipedia")) return "W";
+  if (domain.includes("csdn")) return "C";
+  if (domain.includes("zhihu")) return "知";
+  return "◌";
 }
 
 function ResearchProgressCard({ step, isAdding }: { step: number; isAdding: boolean }) {
@@ -305,74 +365,6 @@ function ResearchProgressCard({ step, isAdding }: { step: number; isAdding: bool
       <span className="research-stop-button">■</span>
     </div>
   );
-}
-
-function ResearchCompleteCard({
-  query,
-  total,
-  domains,
-  pdfCount,
-  selectedCount,
-  onAdd,
-  disabled,
-}: {
-  query: string;
-  total: number;
-  domains: string[];
-  pdfCount: number;
-  selectedCount: number;
-  onAdd: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <section className="research-complete-card">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="research-complete-icon">⌕</span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold leading-6">Deep Research 深度研究已完成！</p>
-            <p className="line-clamp-2 text-xs leading-5 text-[#5f6368]">{query || "网络来源发现"}</p>
-          </div>
-        </div>
-        <button className="research-look-button" type="button">查看</button>
-      </div>
-      <div className="research-complete-inner">
-        <div className="space-y-3">
-          {pdfCount ? (
-            <div className="research-summary-row">
-              <span className="research-file-icon research-file-pdf">PDF</span>
-              <div>
-                <p className="font-semibold">发现 {pdfCount} 个 PDF 来源</p>
-                <p className="text-xs text-[#5f6368]">可加入知识库后生成引用和摘要</p>
-              </div>
-            </div>
-          ) : null}
-          <div className="research-summary-row">
-            <span className="research-file-icon research-file-web">▣</span>
-            <div>
-              <p className="font-semibold">{total} 个热门来源</p>
-              <p className="line-clamp-2 text-xs text-[#5f6368]">{domains.slice(0, 4).join("、") || "来自网络搜索候选"}</p>
-            </div>
-          </div>
-        </div>
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 text-[#5f6368]">
-            <button className="research-feedback-button" type="button">👍</button>
-            <button className="research-feedback-button" type="button">👎</button>
-          </div>
-          <button className="research-import-button" onClick={onAdd} disabled={disabled}>
-            ＋ 导入{selectedCount ? ` ${selectedCount}` : ""}
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function summarizeSearchResults(items: WebCandidate[]) {
-  const domains = Array.from(new Set(items.map((item) => item.domain || safeDomain(item.url)).filter(Boolean)));
-  const pdfCount = items.filter((item) => item.url.toLowerCase().includes(".pdf") || item.title.toLowerCase().includes(".pdf")).length;
-  return { domains, pdfCount };
 }
 
 function safeDomain(url: string) {
@@ -423,10 +415,14 @@ function SourceItem({ source, onClick }: { source: Source; onClick: () => void }
 
 function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; onBack: () => void; onAsk: (message: string) => void; onCollapse: () => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [showChunks, setShowChunks] = useState(false);
   const keywords = source.chunks.flatMap((chunk) => chunk.keywords).filter(Boolean);
   const uniqueKeywords = Array.from(new Set(keywords)).slice(0, 4);
   const guideText = source.summary || "这份来源已导入知识库。系统会围绕其中的核心概念、关键流程和易错点，为你生成问答、测验、抽认卡和思维导图。";
   const visibleChunks = expanded ? source.chunks : source.chunks.slice(0, 6);
+  const fullText = source.chunks.map((chunk) => chunk.text.trim()).filter(Boolean).join("\n\n");
+  const previewText = expanded ? fullText : fullText.slice(0, 9000);
+  const shouldTruncateText = fullText.length > previewText.length;
 
   return (
     <aside className="panel flex min-h-0 flex-col source-detail-enter">
@@ -476,25 +472,44 @@ function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; o
             </div>
           ) : null}
         </section>
-        <article className="mt-6 space-y-3 rounded-[18px] bg-white text-[15px] leading-7 text-[#2b2f33]">
-          {visibleChunks.length ? (
-            visibleChunks.map((chunk) => (
-              <section key={chunk.id} className="source-chunk-card">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-xs font-semibold text-[#5f6368]">{chunk.location}</span>
-                  {chunk.keywords.length ? <span className="truncate text-[11px] text-[#8a94a6]">{chunk.keywords.slice(0, 4).join(" / ")}</span> : null}
-                </div>
-                <p className="whitespace-pre-wrap">{chunk.text}</p>
-              </section>
-            ))
-          ) : (
-            <p>该来源暂无可预览文本。</p>
-          )}
-          {source.chunks.length > 6 ? (
-            <button className="source-expand-button" onClick={() => setExpanded((value) => !value)}>
-              {expanded ? "收起" : `展开全部 ${source.chunks.length} 个片段`}
+        <article className="source-reading-card">
+          <div className="source-reading-toolbar">
+            <span>{showChunks ? "检索片段" : "正文"}</span>
+            <button type="button" onClick={() => setShowChunks((value) => !value)}>
+              {showChunks ? "连续正文" : "查看片段"}
             </button>
-          ) : null}
+          </div>
+          {showChunks ? (
+            <div className="space-y-3">
+              {visibleChunks.length ? (
+                visibleChunks.map((chunk) => (
+                  <section key={chunk.id} className="source-chunk-card">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-[#5f6368]">{chunk.location}</span>
+                      {chunk.keywords.length ? <span className="truncate text-[11px] text-[#8a94a6]">{chunk.keywords.slice(0, 4).join(" / ")}</span> : null}
+                    </div>
+                    <p className="whitespace-pre-wrap">{chunk.text}</p>
+                  </section>
+                ))
+              ) : (
+                <p>该来源暂无可预览文本。</p>
+              )}
+              {source.chunks.length > 6 ? (
+                <button className="source-expand-button" onClick={() => setExpanded((value) => !value)}>
+                  {expanded ? "收起片段" : `展开全部 ${source.chunks.length} 个片段`}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {previewText ? <p className="source-readable-text">{previewText}</p> : <p>该来源暂无可预览文本。</p>}
+              {shouldTruncateText || expanded ? (
+                <button className="source-expand-button mt-4" onClick={() => setExpanded((value) => !value)}>
+                  {expanded ? "收起正文" : "展开全部正文"}
+                </button>
+              ) : null}
+            </>
+          )}
         </article>
       </div>
     </aside>
