@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="NetNote logo">
+  <rect x="52" y="52" width="920" height="920" rx="165" fill="#0D1B3D"/>
+  <path d="M722 52L972 302V360H800L722 282Z" fill="#fff"/>
+  <path d="M780 88L936 292L808 275L780 210Z" fill="#3B82F6"/>
+  <path d="M792 100L910 278L826 262L792 206Z" fill="#60A5FA"/>
+  <rect x="210" y="305" width="120" height="485" rx="18" fill="#fff"/>
+  <rect x="694" y="348" width="120" height="442" rx="18" fill="#fff"/>
+  <path d="M256 262a61 61 0 0 1 92 8l428 485a61 61 0 0 1-92 81L256 351a61 61 0 0 1 0-89Z" fill="#fff"/>
+</svg>

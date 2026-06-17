@@ -21,10 +21,11 @@ export function ChatPanel({
   onSend: (message?: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const visibleMessages = messages.filter((message) => message.role !== "summary");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, streamingAnswer, isThinking]);
+  }, [visibleMessages.length, streamingAnswer, isThinking]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -45,9 +46,9 @@ export function ChatPanel({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          {messages.length ? (
+          {visibleMessages.length ? (
             <div className="space-y-4">
-              {messages.map((message) => <ChatBubble key={message.id} message={message} />)}
+              {visibleMessages.map((message) => <ChatBubble key={message.id} message={message} />)}
             </div>
           ) : (
             <WelcomeChat onAsk={onSend} />

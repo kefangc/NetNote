@@ -19,6 +19,12 @@ from .agents import (
     make_id,
 )
 from .llm_client import get_llm_client
+from .memory import (
+    build_runtime_context,
+    generate_conversation_summary,
+    rewrite_query,
+    should_generate_summary,
+)
 from .parsers import chunk_text, parse_file
 from .schemas import (
     AddWebSourceRequest,
@@ -215,14 +221,21 @@ def chat(request: ChatRequest):
     state = ensure_seed()
     user_message = Message(id=make_id("msg"), role="user", content=request.message)
     tutor = TutorAgent()
-    chunks, citations = tutor.retrieve(state, request.message)
+    retrieval_query = rewrite_query(request.message, state)
+    chunks, citations = tutor.retrieve(state, retrieval_query)
+    runtime_context = build_runtime_context(state, request.message, chunks, retrieval_query)
 
     def persist(answer: str) -> None:
         saved = store.load()
         assistant_message = Message(id=make_id("msg"), role="assistant", content=answer, citations=citations)
         saved.messages.extend([user_message, assistant_message])
         saved.profile = ProfileAgent().update_after_chat(saved.profile, request.message)
-        saved.study_events.append({"type": "chat", "message": request.message})
+        saved.study_events.append({"type": "chat", "message": request.message, "retrieval_query": retrieval_query})
+        if should_generate_summary(saved.messages):
+            summary = generate_conversation_summary(saved.messages)
+            if summary:
+                saved.messages.append(Message(id=make_id("msg"), role="summary", content=summary))
+                saved.study_events.append({"type": "conversation_summary", "message_count": len(saved.messages)})
         store.save(saved)
 
     def stream():
@@ -230,13 +243,13 @@ def chat(request: ChatRequest):
         try:
             llm = get_llm_client()
             if llm.configured:
-                for chunk in llm.stream_chat(tutor.build_messages(request.message, chunks), temperature=0.2, max_tokens=1800):
+                for chunk in llm.stream_chat(runtime_context.messages, temperature=0.2, max_tokens=1800):
                     answer_parts.append(chunk)
                     yield chunk
             else:
                 raise RuntimeError("LLM is not configured")
         except Exception:
-            fallback_answer, _ = tutor.answer(state, request.message)
+            fallback_answer, _ = tutor.answer(state, retrieval_query)
             fallback_answer = SafetyAgent().validate_answer(fallback_answer, citations)
             answer_parts = [fallback_answer]
             yield fallback_answer

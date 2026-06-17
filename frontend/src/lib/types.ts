@@ -21,7 +21,7 @@ export type Source = {
 
 export type Message = {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "summary";
   content: string;
   citations: Citation[];
 };

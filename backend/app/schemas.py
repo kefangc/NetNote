@@ -60,7 +60,7 @@ class Source(BaseModel):
 
 class Message(BaseModel):
     id: str
-    role: Literal["user", "assistant"]
+    role: Literal["user", "assistant", "summary"]
     content: str
     citations: list[Citation] = Field(default_factory=list)
 
