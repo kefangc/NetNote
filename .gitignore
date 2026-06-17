@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.codex_video_frames/
+*.log
+*.err.log
+backend/data/workspace.json
+backend/uploads/
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
+frontend/.env*.local
+frontend/out/
