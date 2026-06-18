@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { SourcesPanel } from "@/components/SourcesPanel";
@@ -128,7 +129,7 @@ export default function Home() {
       <div className="flex h-screen flex-col">
         <header className="flex h-16 shrink-0 items-center justify-between px-5">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#111] text-[17px] font-semibold text-white shadow-sm">AI</div>
+            <Image className="h-10 w-10 shrink-0 rounded-[10px] shadow-sm" src="/brand/netnote-icon.svg" alt="NetNote" width={40} height={40} priority />
             <div className="min-w-0">
               <h1 className="truncate text-[20px] font-medium tracking-[-0.01em]">{workspace?.course_title ?? "计算机网络"}</h1>
               <p className="mt-0.5 text-xs text-[#5f6368]">个性化资源生成与学习多智能体系统</p>

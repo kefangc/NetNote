@@ -1233,16 +1233,11 @@ button:disabled {
 }
 
 .thinking-logo {
-  display: grid;
   height: 34px;
   width: 34px;
   flex-shrink: 0;
-  place-items: center;
-  border-radius: 999px;
-  background: #202124;
-  color: white;
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 8px;
+  object-fit: contain;
   animation: thinkingPulse 1.45s ease-in-out infinite;
 }
 
