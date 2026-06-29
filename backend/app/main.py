@@ -83,10 +83,88 @@ def refresh_stale_source_guides(state: WorkspaceState) -> WorkspaceState:
             source.extraction_method = "ynu_transcript"
             source.extraction_status = "complete" if source.content_length >= 800 else "partial"
             changed = True
+        if source.kind == "lecture":
+            if not source.metadata.get("video_url"):
+                video_url = first_lecture_video_url(source.metadata)
+                if video_url:
+                    source.metadata["video_url"] = video_url
+                    changed = True
+            for chunk in source.chunks:
+                if (chunk.metadata or {}).get("kind") == "lecture":
+                    for key in ("week", "section"):
+                        if lecture_timeish(str(chunk.metadata.get(key) or "")):
+                            chunk.metadata[key] = ""
+                            changed = True
+                    if source.metadata.get("video_url") and not chunk.metadata.get("video_url"):
+                        chunk.metadata["video_url"] = source.metadata.get("video_url")
+                        changed = True
+                    continue
+                start_time, end_time = lecture_location_times(chunk.location)
+                chunk.metadata = {
+                    "kind": "lecture",
+                    "platform": source.metadata.get("platform") or "ynu_course",
+                    "week": source.metadata.get("week") or "",
+                    "section": source.metadata.get("section") or "",
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "start_seconds": lecture_time_to_seconds(start_time),
+                    "end_seconds": lecture_time_to_seconds(end_time),
+                    "video_url": source.metadata.get("video_url") or "",
+                    "source_url": source.url or "",
+                }
+                changed = True
         if not source.summary or "主要围绕" in source.summary or "代表内容" in source.summary:
             source.summary = generate_source_guide(source.chunks, source.title)
             changed = True
     return store.save(state) if changed else state
+
+
+def first_lecture_video_url(metadata: dict) -> str:
+    transcript = metadata.get("transcript") if isinstance(metadata.get("transcript"), dict) else {}
+    targets = transcript.get("used_targets") or transcript.get("resolved_targets") or []
+    if not isinstance(targets, list):
+        return ""
+    for target in targets:
+        if not isinstance(target, dict):
+            continue
+        url = str(target.get("download_address") or "").strip()
+        if url:
+            if url.startswith("//"):
+                return f"https:{url}"
+            if url.startswith("http://") or url.startswith("https://"):
+                return url
+            if url.startswith("/"):
+                return f"https://course.ynu.edu.cn{url}"
+            return url
+    return ""
+
+
+def lecture_location_times(location: str) -> tuple[str, str]:
+    import re
+
+    matches = re.findall(r"\d{1,2}:\d{2}:\d{2}", location)
+    if len(matches) >= 2:
+        return matches[0], matches[1]
+    if len(matches) == 1:
+        return matches[0], ""
+    return "", ""
+
+
+def lecture_timeish(value: str) -> bool:
+    import re
+
+    return bool(re.search(r"\d{1,2}:\d{2}:\d{2}", value))
+
+
+def lecture_time_to_seconds(value: str | None) -> int | None:
+    import re
+
+    if not value:
+        return None
+    match = re.search(r"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})", str(value))
+    if not match:
+        return None
+    return int(match.group(1) or 0) * 3600 + int(match.group(2)) * 60 + int(match.group(3))
 
 
 def ensure_seed() -> WorkspaceState:

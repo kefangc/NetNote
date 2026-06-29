@@ -80,9 +80,13 @@ def evidence_context(chunks: list[SourceChunk]) -> str:
     if not chunks:
         return "当前没有检索到直接相关的来源。可以回答一般学习问题，但必须标明“以下为通用解释”。"
     return "\n\n".join(
-        f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[:1200]}"
+        f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[: evidence_budget(chunk)]}"
         for index, chunk in enumerate(chunks, start=1)
     )
+
+
+def evidence_budget(chunk: SourceChunk) -> int:
+    return 650 if (chunk.metadata or {}).get("kind") == "lecture" or re.search(r"\d{1,2}:\d{2}:\d{2}", chunk.location) else 1200
 
 
 def rewrite_query(question: str, state: WorkspaceState) -> str:

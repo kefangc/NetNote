@@ -33,6 +33,7 @@ class Citation(BaseModel):
     source_title: str
     location: str
     snippet: str
+    metadata: dict = Field(default_factory=dict)
 
 
 class SourceChunk(BaseModel):
@@ -42,6 +43,7 @@ class SourceChunk(BaseModel):
     text: str
     location: str = "全文"
     keywords: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
 
 
 class Source(BaseModel):

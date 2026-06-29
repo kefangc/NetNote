@@ -413,14 +413,16 @@ def build_source_from_lecture(client: YnuClient, request: YnuImportLectureReques
     title = request.title or request.course_name or first_value(detail, "name", "title", "courseName") or "云大学堂课堂录播"
     if request.week or request.section:
         title = f"{title}｜{' '.join(part for part in [request.week, request.section] if part)}"
-    chunks = transcript_chunks(segments, source_id, str(title), request.week, request.section)
+    source_url = request.url or lecture_url(request.course_id, request.record_id, request.school_year, request.semester)
+    video_url = best_video_url(transcript_meta)
+    chunks = transcript_chunks(segments, source_id, str(title), request.week, request.section, source_url, video_url)
     content_length = sum(len(chunk.text) for chunk in chunks)
     return Source(
         id=source_id,
         title=str(title),
         kind="lecture",
         status="ready",
-        url=request.url or lecture_url(request.course_id, request.record_id, request.school_year, request.semester),
+        url=source_url,
         summary=generate_source_guide(chunks, str(title)),
         extraction_status="complete" if content_length >= 800 else "partial",
         extraction_method="ynu_transcript",
@@ -435,6 +437,7 @@ def build_source_from_lecture(client: YnuClient, request: YnuImportLectureReques
             "semester": request.semester,
             "week": request.week,
             "section": request.section,
+            "video_url": video_url,
             "video_detail": detail,
             "transcript": transcript_meta,
         },
@@ -448,7 +451,9 @@ def transcript_chunks(
     source_title: str,
     week: str | None,
     section: str | None,
-    size: int = 1400,
+    source_url: str | None = None,
+    video_url: str | None = None,
+    size: int = 900,
 ) -> list[SourceChunk]:
     chunks: list[SourceChunk] = []
     bucket: list[YnuTranscriptSegment] = []
@@ -464,6 +469,8 @@ def transcript_chunks(
         time_part = " - ".join(part for part in [start, end] if part)
         location_parts = [part for part in [week, section, time_part] if part]
         text = "\n".join(lines).strip()
+        start_seconds = time_to_seconds(start)
+        end_seconds = time_to_seconds(end)
         chunks.append(
             SourceChunk(
                 id=make_id("chunk"),
@@ -472,6 +479,18 @@ def transcript_chunks(
                 text=text,
                 location=" / ".join(location_parts) or f"转写片段 {len(chunks) + 1}",
                 keywords=extract_keywords(text),
+                metadata={
+                    "kind": "lecture",
+                    "platform": "ynu_course",
+                    "week": week or "",
+                    "section": section or "",
+                    "start_time": start,
+                    "end_time": end,
+                    "start_seconds": start_seconds,
+                    "end_seconds": end_seconds,
+                    "video_url": video_url or "",
+                    "source_url": source_url or "",
+                },
             )
         )
         bucket = []
@@ -485,6 +504,41 @@ def transcript_chunks(
         bucket_len += text_len
     flush()
     return chunks
+
+
+def best_video_url(transcript_meta: dict[str, Any]) -> str:
+    targets = transcript_meta.get("used_targets") or transcript_meta.get("resolved_targets") or []
+    if not isinstance(targets, list):
+        return ""
+    for target in targets:
+        if not isinstance(target, dict):
+            continue
+        url = str(target.get("download_address") or "").strip()
+        if url:
+            return absolute_course_url(url)
+    return ""
+
+
+def absolute_course_url(url: str) -> str:
+    if not url:
+        return ""
+    if url.startswith("//"):
+        return f"https:{url}"
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return urljoin(YNU_BASE, url)
+
+
+def time_to_seconds(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.search(r"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})", str(value))
+    if not match:
+        return None
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2))
+    seconds = int(match.group(3))
+    return hours * 3600 + minutes * 60 + seconds
 
 
 def normalize_transcript(data: Any) -> list[YnuTranscriptSegment]:

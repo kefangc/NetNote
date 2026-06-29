@@ -1,10 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useEffect, useRef } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { IconButton } from "./Common";
 import { Markdown } from "./Markdown";
-import type { Message } from "@/lib/types";
+import type { Citation, Message } from "@/lib/types";
 
 export function ChatPanel({
   messages,
@@ -22,6 +22,7 @@ export function ChatPanel({
   onSend: (message?: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [activeLecture, setActiveLecture] = useState<Citation | null>(null);
   const visibleMessages = messages.filter((message) => message.role !== "summary");
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export function ChatPanel({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {visibleMessages.length ? (
             <div className="space-y-4">
-              {visibleMessages.map((message) => <ChatBubble key={message.id} message={message} />)}
+              {visibleMessages.map((message) => <ChatBubble key={message.id} message={message} onOpenLecture={setActiveLecture} />)}
             </div>
           ) : (
             <WelcomeChat onAsk={onSend} />
@@ -81,6 +82,7 @@ export function ChatPanel({
           </div>
         </form>
       </div>
+      {activeLecture ? <LecturePlaybackModal citation={activeLecture} onClose={() => setActiveLecture(null)} /> : null}
     </section>
   );
 }
@@ -118,22 +120,141 @@ function WelcomeChat({ onAsk }: { onAsk: (text: string) => void }) {
   );
 }
 
-function ChatBubble({ message }: { message: Message }) {
+function ChatBubble({ message, onOpenLecture }: { message: Message; onOpenLecture: (citation: Citation) => void }) {
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[820px] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm ${isUser ? "bg-[#303134] text-white" : "border border-[#edf0f7] bg-white text-[#202124]"}`}>
         <Markdown text={message.content} />
         {message.citations.length ? (
-          <div className="mt-3 space-y-1 border-t border-[#edf0f7] pt-2 text-xs text-[#5f6368]">
+          <div className="chat-citations">
             {message.citations.map((citation, index) => (
-              <p key={`${citation.source_id}-${citation.location}`} className="rounded-md bg-[#f1f3ff] px-2 py-1">
-                [{index + 1}] {citation.source_title} / {citation.location}
-              </p>
+              <CitationItem
+                key={`${citation.source_id}-${citation.location}-${index}`}
+                index={index}
+                citation={citation}
+                onOpenLecture={onOpenLecture}
+              />
             ))}
           </div>
         ) : null}
       </div>
     </div>
   );
+}
+
+function CitationItem({
+  citation,
+  index,
+  onOpenLecture,
+}: {
+  citation: Citation;
+  index: number;
+  onOpenLecture: (citation: Citation) => void;
+}) {
+  const isLecture = citation.metadata?.kind === "lecture";
+  if (!isLecture) {
+    return (
+      <p className="chat-citation-row">
+        [{index + 1}] {citation.source_title} / {citation.location}
+      </p>
+    );
+  }
+  return (
+    <button className="lecture-citation-button" type="button" onClick={() => onOpenLecture(citation)}>
+      <span className="lecture-citation-index">[{index + 1}]</span>
+      <span className="lecture-citation-main">{lectureLabel(citation)}</span>
+      <span className="lecture-citation-play">▶</span>
+    </button>
+  );
+}
+
+function LecturePlaybackModal({ citation, onClose }: { citation: Citation; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const metadata = citation.metadata ?? {};
+  const videoUrl = metadata.video_url || "";
+  const sourceUrl = metadata.source_url || "";
+  const startSeconds = typeof metadata.start_seconds === "number" ? metadata.start_seconds : 0;
+  const endSeconds = typeof metadata.end_seconds === "number" ? metadata.end_seconds : null;
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  function seekToStart() {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    if (startSeconds > 0 && Number.isFinite(startSeconds)) {
+      video.currentTime = startSeconds;
+    }
+    void video.play().catch(() => undefined);
+  }
+
+  function closeAtSegmentEnd() {
+    const video = videoRef.current;
+    if (!video || endSeconds === null || endSeconds <= startSeconds) {
+      return;
+    }
+    if (video.currentTime >= endSeconds) {
+      video.pause();
+      onClose();
+    }
+  }
+
+  return (
+    <div className="lecture-modal-backdrop" onClick={onClose}>
+      <div className="lecture-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="lecture-modal-header">
+          <div>
+            <p>{lectureLabel(citation)}</p>
+            <h3>{citation.source_title}</h3>
+          </div>
+          <button type="button" aria-label="关闭" onClick={onClose}>×</button>
+        </div>
+        <div className="lecture-modal-body">
+          {videoUrl ? (
+            <video
+              ref={videoRef}
+              className="lecture-video"
+              src={videoUrl}
+              controls
+              autoPlay
+              playsInline
+              onLoadedMetadata={seekToStart}
+              onTimeUpdate={closeAtSegmentEnd}
+              onEnded={onClose}
+            />
+          ) : sourceUrl ? (
+            <iframe className="lecture-frame" src={sourceUrl} title={citation.source_title} />
+          ) : (
+            <div className="lecture-empty-state">
+              <strong>{metadata.start_time || citation.location}</strong>
+              <p>{citation.snippet}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function lectureLabel(citation: Citation) {
+  const metadata = citation.metadata ?? {};
+  const parts = [cleanLecturePart(metadata.week), cleanLecturePart(metadata.section), metadata.start_time].filter(Boolean);
+  return parts.length ? parts.join(" / ") : citation.location;
+}
+
+function cleanLecturePart(value?: string) {
+  if (!value || /\d{1,2}:\d{2}:\d{2}/.test(value)) {
+    return "";
+  }
+  return value;
 }

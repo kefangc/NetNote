@@ -3,6 +3,18 @@ export type Citation = {
   source_title: string;
   location: string;
   snippet: string;
+  metadata?: {
+    kind?: string;
+    platform?: string;
+    week?: string;
+    section?: string;
+    start_time?: string;
+    end_time?: string;
+    start_seconds?: number;
+    end_seconds?: number;
+    video_url?: string;
+    source_url?: string;
+  };
 };
 
 export type Source = {
@@ -17,7 +29,7 @@ export type Source = {
   extraction_method: "jina_reader" | "trafilatura" | "html_fallback" | "search_snippet" | "ynu_transcript" | "file" | "seed" | "unknown";
   content_length: number;
   metadata?: Record<string, unknown>;
-  chunks: { id: string; text: string; location: string; keywords: string[] }[];
+  chunks: { id: string; text: string; location: string; keywords: string[]; metadata?: Record<string, unknown> }[];
 };
 
 export type Message = {

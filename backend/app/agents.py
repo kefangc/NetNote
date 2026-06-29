@@ -162,6 +162,10 @@ class RetrievalAgent:
     def search(self, state: WorkspaceState, query: str, limit: int = 5) -> list[SourceChunk]:
         lower_query = query.lower()
         has_domain_signal = any(term.lower() in lower_query for term in KNOWN_TERMS)
+        has_lecture_source = any(source.kind == "lecture" and source.status == "ready" for source in state.sources)
+        if not has_domain_signal and has_lecture_source:
+            lecture_markers = ["老师", "课堂", "课程", "讲到", "提到", "录播", "转写", "这节课", "上课", "第几周"]
+            has_domain_signal = any(marker in query for marker in lecture_markers)
         if not has_domain_signal:
             source_terms = {
                 keyword.lower()
@@ -195,20 +199,13 @@ class RetrievalAgent:
 class TutorAgent:
     def retrieve(self, state: WorkspaceState, question: str) -> tuple[list[SourceChunk], list[Citation]]:
         chunks = RetrievalAgent().search(state, question, limit=4)
-        citations = [
-            Citation(
-                source_id=chunk.source_id,
-                source_title=chunk.source_title,
-                location=chunk.location,
-                snippet=chunk.text[:140].replace("\n", " "),
-            )
-            for chunk in chunks
-        ]
+        source_map = {source.id: source for source in state.sources}
+        citations = [self._citation_for_chunk(chunk, source_map.get(chunk.source_id)) for chunk in chunks]
         return chunks, citations
 
     def build_messages(self, question: str, chunks: list[SourceChunk]) -> list[dict[str, str]]:
         evidence = "\n\n".join(
-            f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[:1200]}"
+            f"[{index}] {chunk.source_title} / {chunk.location}\n{chunk.text[: self._chunk_budget(chunk)]}"
             for index, chunk in enumerate(chunks, start=1)
         )
         evidence_text = evidence or "当前没有检索到直接相关的来源。你仍然可以正常回答用户的一般学习问题；如果使用了通用知识，请明确说明“以下为通用解释”。"
@@ -258,6 +255,87 @@ class TutorAgent:
             return get_llm_client().chat(messages, temperature=0.2, max_tokens=1600)
         except Exception:
             return None
+
+    def _citation_for_chunk(self, chunk: SourceChunk, source) -> Citation:
+        metadata = self._clean_lecture_metadata(dict(chunk.metadata or {}))
+        if source and source.kind == "lecture":
+            base_metadata = self._lecture_metadata_from_source(chunk, source)
+            metadata = {**base_metadata, **{key: value for key, value in metadata.items() if value not in (None, "")}}
+        return Citation(
+            source_id=chunk.source_id,
+            source_title=chunk.source_title,
+            location=chunk.location,
+            snippet=chunk.text[:140].replace("\n", " "),
+            metadata={key: value for key, value in metadata.items() if value not in (None, "")},
+        )
+
+    def _clean_lecture_metadata(self, metadata: dict) -> dict:
+        for key in ("week", "section"):
+            if re.search(r"\d{1,2}:\d{2}:\d{2}", str(metadata.get(key) or "")):
+                metadata[key] = ""
+        return metadata
+
+    def _lecture_metadata_from_source(self, chunk: SourceChunk, source) -> dict:
+        source_meta = source.metadata or {}
+        start_time, end_time = self._location_times(chunk.location)
+        return {
+            "kind": "lecture",
+            "platform": source_meta.get("platform") or "ynu_course",
+            "week": source_meta.get("week") or self._location_part(chunk.location, 0),
+            "section": source_meta.get("section") or self._location_part(chunk.location, 1),
+            "start_time": start_time,
+            "end_time": end_time,
+            "start_seconds": self._time_to_seconds(start_time),
+            "end_seconds": self._time_to_seconds(end_time),
+            "video_url": self._absolute_course_url(source_meta.get("video_url") or self._video_url_from_transcript_meta(source_meta)),
+            "source_url": source.url or "",
+        }
+
+    def _chunk_budget(self, chunk: SourceChunk) -> int:
+        return 650 if (chunk.metadata or {}).get("kind") == "lecture" or re.search(r"\d{1,2}:\d{2}:\d{2}", chunk.location) else 1200
+
+    def _location_part(self, location: str, index: int) -> str:
+        parts = [part.strip() for part in location.split("/") if part.strip()]
+        value = parts[index] if len(parts) > index else ""
+        return "" if re.search(r"\d{1,2}:\d{2}:\d{2}", value) else value
+
+    def _location_times(self, location: str) -> tuple[str, str]:
+        matches = re.findall(r"\d{1,2}:\d{2}:\d{2}", location)
+        if len(matches) >= 2:
+            return matches[0], matches[1]
+        if len(matches) == 1:
+            return matches[0], ""
+        return "", ""
+
+    def _time_to_seconds(self, value: str | None) -> int | None:
+        if not value:
+            return None
+        match = re.search(r"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})", str(value))
+        if not match:
+            return None
+        return int(match.group(1) or 0) * 3600 + int(match.group(2)) * 60 + int(match.group(3))
+
+    def _video_url_from_transcript_meta(self, source_meta: dict) -> str:
+        transcript = source_meta.get("transcript") if isinstance(source_meta.get("transcript"), dict) else {}
+        targets = transcript.get("used_targets") or transcript.get("resolved_targets") or []
+        if not isinstance(targets, list):
+            return ""
+        for target in targets:
+            if isinstance(target, dict) and target.get("download_address"):
+                return str(target.get("download_address"))
+        return ""
+
+    def _absolute_course_url(self, url: str | None) -> str:
+        value = str(url or "").strip()
+        if not value:
+            return ""
+        if value.startswith("//"):
+            return f"https:{value}"
+        if value.startswith("http://") or value.startswith("https://"):
+            return value
+        if value.startswith("/"):
+            return f"https://course.ynu.edu.cn{value}"
+        return value
 
 
 class ResourceAgent:
@@ -485,7 +563,12 @@ class ResourceAgent:
         }
 
     def _source_chunks(self, state: WorkspaceState) -> list[SourceChunk]:
-        chunks = [chunk for source in state.sources if source.status == "ready" for chunk in source.chunks]
+        chunks: list[SourceChunk] = []
+        for source in state.sources:
+            if source.status != "ready":
+                continue
+            limit = 3 if source.kind == "lecture" else 12
+            chunks.extend(source.chunks[:limit])
         return chunks[:12]
 
     def _summary(self, state: WorkspaceState, chunks: list[SourceChunk]) -> dict:
