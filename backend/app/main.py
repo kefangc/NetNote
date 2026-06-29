@@ -37,9 +37,13 @@ from .schemas import (
     RenameArtifactRequest,
     Source,
     WorkspaceState,
+    YnuCourseListRequest,
+    YnuImportLectureRequest,
+    YnuLoginRequest,
 )
 from .store import JsonStore
 from .web_ingest import WebIngestor
+from .ynu_ingest import YNU_AUTH_URL, YnuAuthError, YnuClient, build_source_from_lecture, new_session_id
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +60,7 @@ app.add_middleware(
 )
 
 store = JsonStore(DATA_PATH)
+ynu_sessions: dict[str, YnuClient] = {}
 
 
 def refresh_stale_source_guides(state: WorkspaceState) -> WorkspaceState:
@@ -73,6 +78,10 @@ def refresh_stale_source_guides(state: WorkspaceState) -> WorkspaceState:
         if source.kind == "seed" and source.extraction_method == "unknown":
             source.extraction_method = "seed"
             source.extraction_status = "complete"
+            changed = True
+        if source.kind == "lecture" and source.extraction_method == "unknown":
+            source.extraction_method = "ynu_transcript"
+            source.extraction_status = "complete" if source.content_length >= 800 else "partial"
             changed = True
         if not source.summary or "主要围绕" in source.summary or "代表内容" in source.summary:
             source.summary = generate_source_guide(source.chunks, source.title)
@@ -179,6 +188,76 @@ def add_web_sources(request: AddWebSourcesRequest):
         state.sources.insert(0, source)
         if source.url:
             existing_urls.add(source.url)
+    return store.save(state)
+
+
+@app.post("/sources/ynu/login")
+def login_ynu(request: YnuLoginRequest):
+    if request.cookie_header and request.cookie_header.strip():
+        client = YnuClient(cookie_header=request.cookie_header)
+        session_id = new_session_id()
+        ynu_sessions[session_id] = client
+        return {"session_id": session_id, "auth_url": YNU_AUTH_URL, "message": "已使用 Cookie 连接云大学堂"}
+    if not request.username or not request.password:
+        raise HTTPException(status_code=400, detail="请输入统一认证用户名和密码，或提供 course.ynu.edu.cn Cookie。")
+    client = YnuClient()
+    try:
+        client.login(request.username, request.password)
+    except YnuAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"云大学堂登录失败：{exc}") from exc
+    session_id = new_session_id()
+    ynu_sessions[session_id] = client
+    return {"session_id": session_id, "auth_url": YNU_AUTH_URL, "message": "云大学堂已连接"}
+
+
+@app.post("/sources/ynu/courses")
+def list_ynu_courses(request: YnuCourseListRequest):
+    client = ynu_sessions.get(request.session_id)
+    if not client:
+        raise HTTPException(status_code=401, detail="云大学堂会话已失效，请重新登录。")
+    try:
+        courses = client.list_courses(
+            query=request.query,
+            school_year=request.school_year,
+            semester=request.semester,
+            page=request.page,
+            size=request.size,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"云大学堂课程列表获取失败：{exc}") from exc
+    return {"items": courses}
+
+
+@app.post("/sources/ynu/import")
+def import_ynu_lecture(request: YnuImportLectureRequest):
+    client = ynu_sessions.get(request.session_id)
+    if not client:
+        raise HTTPException(status_code=401, detail="云大学堂会话已失效，请重新登录。")
+    if not request.course_id or not request.record_id:
+        raise HTTPException(status_code=400, detail="缺少课程 ID 或录播 ID。")
+    state = ensure_seed()
+    existing = {
+        source.metadata.get("record_id")
+        for source in state.sources
+        if source.kind == "lecture" and source.metadata.get("platform") == "ynu_course"
+    }
+    if request.record_id in existing:
+        return state
+    try:
+        source = build_source_from_lecture(client, request)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"云大学堂转写导入失败：{exc}") from exc
+    state.sources.insert(0, source)
+    state.study_events.append(
+        {
+            "type": "ynu_lecture_import",
+            "course_id": request.course_id,
+            "record_id": request.record_id,
+            "title": source.title,
+        }
+    )
     return store.save(state)
 
 

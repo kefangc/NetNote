@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactKind, WebCandidate, Workspace } from "./types";
+import type { Artifact, ArtifactKind, WebCandidate, Workspace, YnuCourse } from "./types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
@@ -45,6 +45,48 @@ export async function addWebSources(items: WebCandidate[]) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items }),
+    }),
+  );
+}
+
+export async function loginYnuSource(credentials: { username?: string; password?: string; cookie_header?: string }) {
+  return asJson<{ session_id: string; auth_url: string; message: string }>(
+    await fetch(`${API_BASE}/sources/ynu/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(credentials),
+    }),
+  );
+}
+
+export async function searchYnuCourses(params: { session_id: string; query?: string; school_year?: string; semester?: string }) {
+  return asJson<{ items: YnuCourse[] }>(
+    await fetch(`${API_BASE}/sources/ynu/courses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: 1, size: 20, ...params }),
+    }),
+  );
+}
+
+export async function importYnuLecture(sessionId: string, course: YnuCourse) {
+  return asJson<Workspace>(
+    await fetch(`${API_BASE}/sources/ynu/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        course_id: course.course_id,
+        record_id: course.record_id,
+        school_year: course.school_year || undefined,
+        semester: course.semester || undefined,
+        course_name: course.course_name || undefined,
+        title: course.title || course.course_name || undefined,
+        teacher: course.teacher || undefined,
+        week: course.week || undefined,
+        section: course.section || undefined,
+        url: course.url || undefined,
+      }),
     }),
   );
 }

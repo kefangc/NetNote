@@ -10,18 +10,25 @@ import {
   addWebSources,
   generateArtifact,
   getWorkspace,
+  importYnuLecture,
+  loginYnuSource,
   searchWebSource,
+  searchYnuCourses,
   streamChat,
   uploadSource,
 } from "@/lib/api";
-import type { Artifact, ArtifactKind, Message, WebCandidate, Workspace } from "@/lib/types";
+import type { Artifact, ArtifactKind, Message, SourceScope, WebCandidate, Workspace, YnuCourse } from "@/lib/types";
 import { artifactLabel } from "@/lib/artifacts";
 
 export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [sourceScope, setSourceScope] = useState<SourceScope>("web");
   const [searchResults, setSearchResults] = useState<WebCandidate[]>([]);
+  const [ynuCourses, setYnuCourses] = useState<YnuCourse[]>([]);
+  const [ynuSessionId, setYnuSessionId] = useState<string | null>(null);
+  const [ynuMessage, setYnuMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streamingAnswer, setStreamingAnswer] = useState("");
@@ -70,6 +77,56 @@ export default function Home() {
       setSearchResults(data.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "搜索失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function loginYnu(credentials: { username?: string; password?: string; cookie_header?: string }) {
+    setBusy("正在登录云大学堂");
+    try {
+      const data = await loginYnuSource(credentials);
+      setYnuSessionId(data.session_id);
+      setYnuMessage(data.message);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "云大学堂登录失败");
+      throw err;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function searchYnu() {
+    if (!ynuSessionId) {
+      setError("请先连接云大学堂。");
+      return;
+    }
+    setBusy("正在搜索云大学堂课程");
+    setYnuCourses([]);
+    try {
+      const data = await searchYnuCourses({ session_id: ynuSessionId, query: searchInput || undefined });
+      setYnuCourses(data.items);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "云大学堂课程搜索失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function importYnu(course: YnuCourse) {
+    if (!ynuSessionId) {
+      setError("请先连接云大学堂。");
+      return;
+    }
+    setBusy("正在导入云大学堂转写");
+    try {
+      setWorkspace(await importYnuLecture(ynuSessionId, course));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "云大学堂转写导入失败");
+      throw err;
     } finally {
       setBusy(null);
     }
@@ -160,12 +217,24 @@ export default function Home() {
         >
           <SourcesPanel
             sources={workspace?.sources ?? []}
+            sourceScope={sourceScope}
+            onSourceScopeChange={(scope) => {
+              setSourceScope(scope);
+              setSearchResults([]);
+              setYnuCourses([]);
+            }}
             searchInput={searchInput}
             searchResults={searchResults}
+            ynuCourses={ynuCourses}
+            ynuConnected={Boolean(ynuSessionId)}
+            ynuMessage={ynuMessage}
             busy={busy}
             onSearchInput={setSearchInput}
             onUpload={(file) => void upload(file)}
             onSearch={() => void search()}
+            onYnuLogin={(credentials) => loginYnu(credentials)}
+            onYnuSearch={() => void searchYnu()}
+            onImportYnuCourse={(course) => importYnu(course)}
             onClearSearch={() => setSearchResults([])}
             onAddCandidates={(candidates) => addCandidates(candidates)}
             onAsk={(message) => void sendMessage(message)}

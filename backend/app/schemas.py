@@ -21,6 +21,7 @@ ExtractionMethod = Literal[
     "trafilatura",
     "html_fallback",
     "search_snippet",
+    "ynu_transcript",
     "file",
     "seed",
     "unknown",
@@ -46,7 +47,7 @@ class SourceChunk(BaseModel):
 class Source(BaseModel):
     id: str
     title: str
-    kind: Literal["file", "web", "seed"]
+    kind: Literal["file", "web", "seed", "lecture"]
     status: SourceStatus = "queued"
     summary: str = ""
     path: str | None = None
@@ -55,6 +56,7 @@ class Source(BaseModel):
     extraction_status: ExtractionStatus = "unknown"
     extraction_method: ExtractionMethod = "unknown"
     content_length: int = 0
+    metadata: dict = Field(default_factory=dict)
     chunks: list[SourceChunk] = Field(default_factory=list)
 
 
@@ -158,6 +160,35 @@ class AddWebSourceRequest(BaseModel):
 
 class AddWebSourcesRequest(BaseModel):
     items: list[AddWebSourceRequest]
+
+
+class YnuLoginRequest(BaseModel):
+    username: str | None = None
+    password: str | None = None
+    cookie_header: str | None = None
+
+
+class YnuCourseListRequest(BaseModel):
+    session_id: str
+    query: str | None = None
+    school_year: str | None = None
+    semester: str | None = None
+    page: int = 1
+    size: int = 12
+
+
+class YnuImportLectureRequest(BaseModel):
+    session_id: str
+    course_id: str
+    record_id: str
+    school_year: str | None = None
+    semester: str | None = None
+    course_name: str | None = None
+    title: str | None = None
+    teacher: str | None = None
+    week: str | None = None
+    section: str | None = None
+    url: str | None = None
 
 
 class QuizSubmitRequest(BaseModel):

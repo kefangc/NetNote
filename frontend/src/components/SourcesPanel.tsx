@@ -4,16 +4,24 @@ import { ChangeEvent, FormEvent, useEffect, useRef } from "react";
 import { useState } from "react";
 import { CollapseButton, PanelHeader, SplitPanelIcon } from "./Common";
 import { Markdown } from "./Markdown";
-import type { Source, WebCandidate } from "@/lib/types";
+import type { Source, SourceScope, WebCandidate, YnuCourse } from "@/lib/types";
 
 export function SourcesPanel({
   sources,
+  sourceScope,
+  onSourceScopeChange,
   searchInput,
   searchResults,
+  ynuCourses,
+  ynuConnected,
+  ynuMessage,
   busy,
   onSearchInput,
   onUpload,
   onSearch,
+  onYnuLogin,
+  onYnuSearch,
+  onImportYnuCourse,
   onClearSearch,
   onAddCandidates,
   onAsk,
@@ -22,12 +30,20 @@ export function SourcesPanel({
   onExpand,
 }: {
   sources: Source[];
+  sourceScope: SourceScope;
+  onSourceScopeChange: (scope: SourceScope) => void;
   searchInput: string;
   searchResults: WebCandidate[];
+  ynuCourses: YnuCourse[];
+  ynuConnected: boolean;
+  ynuMessage: string | null;
   busy: string | null;
   onSearchInput: (value: string) => void;
   onUpload: (file: File) => void;
   onSearch: () => void;
+  onYnuLogin: (credentials: { username?: string; password?: string; cookie_header?: string }) => Promise<void> | void;
+  onYnuSearch: () => void;
+  onImportYnuCourse: (course: YnuCourse) => Promise<void> | void;
   onClearSearch: () => void;
   onAddCandidates: (candidates: WebCandidate[]) => Promise<void> | void;
   onAsk: (message: string) => void;
@@ -39,11 +55,19 @@ export function SourcesPanel({
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string> | null>(null);
   const [candidateStatus, setCandidateStatus] = useState<Record<string, "adding" | "added" | "failed">>({});
+  const [courseStatus, setCourseStatus] = useState<Record<string, "adding" | "added" | "failed">>({});
+  const [sourceScopeOpen, setSourceScopeOpen] = useState(false);
   const [researchModeOpen, setResearchModeOpen] = useState(false);
   const [researchStep, setResearchStep] = useState(0);
+  const [ynuUsername, setYnuUsername] = useState("");
+  const [ynuPassword, setYnuPassword] = useState("");
+  const [ynuCookie, setYnuCookie] = useState("");
+  const [showCookieLogin, setShowCookieLogin] = useState(false);
+  const [showYnuConnection, setShowYnuConnection] = useState(true);
   const openSource = sources.find((source) => source.id === openSourceId);
   const isSearching = busy === "正在搜索补充来源";
   const isAdding = busy === "正在加入网络来源";
+  const isYnuBusy = busy === "正在搜索云大学堂课程" || busy === "正在导入云大学堂转写" || busy === "正在登录云大学堂";
   const hasCompletedResearch = searchResults.length > 0 && !isSearching;
   const visibleResearchStep = isSearching || isAdding ? Math.max(researchStep, 1) : 0;
   const addableResults = searchResults.filter((item) => candidateStatus[item.url] !== "added");
@@ -72,6 +96,11 @@ export function SourcesPanel({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (sourceScope === "ynu") {
+      setCourseStatus({});
+      onYnuSearch();
+      return;
+    }
     setCandidateStatus({});
     setSelectedUrls(null);
     setResearchStep(1);
@@ -120,6 +149,30 @@ export function SourcesPanel({
         for (const item of selected) next[item.url] = "failed";
         return next;
       });
+    }
+  }
+
+  async function loginYnu() {
+    if (showCookieLogin && ynuCookie.trim()) {
+      await onYnuLogin({ cookie_header: ynuCookie.trim() });
+      setYnuCookie("");
+      setShowCookieLogin(false);
+      setShowYnuConnection(false);
+      return;
+    }
+    await onYnuLogin({ username: ynuUsername.trim(), password: ynuPassword });
+    setYnuPassword("");
+    setShowYnuConnection(false);
+  }
+
+  async function importCourse(course: YnuCourse) {
+    const key = ynuCourseKey(course);
+    setCourseStatus((current) => ({ ...current, [key]: "adding" }));
+    try {
+      await onImportYnuCourse(course);
+      setCourseStatus((current) => ({ ...current, [key]: "added" }));
+    } catch {
+      setCourseStatus((current) => ({ ...current, [key]: "failed" }));
     }
   }
 
@@ -173,43 +226,121 @@ export function SourcesPanel({
                 className="web-search-input web-search-input-primary"
                 value={searchInput}
                 onChange={(event) => onSearchInput(event.target.value)}
-                placeholder="在网络中搜索新来源"
+                placeholder={sourceScope === "ynu" ? "搜索云大学堂课程，如：计算机网络" : "在网络中搜索新来源"}
               />
-              <button className="search-round-button" title="搜索补充来源" aria-label="搜索补充来源">⌕</button>
+              <button className="search-round-button" title={sourceScope === "ynu" ? "搜索云大学堂课程" : "搜索补充来源"} aria-label={sourceScope === "ynu" ? "搜索云大学堂课程" : "搜索补充来源"} disabled={sourceScope === "ynu" && !ynuConnected}>⌕</button>
             </div>
             <div className="web-search-controls">
-              <button className="mini-source-button" type="button" title="选择范围">🌐 Web⌄</button>
               <div className="research-mode-wrap">
                 <button
-                  className="mini-source-button"
+                  className="mini-source-button source-scope-button"
                   type="button"
-                  title="搜索方式"
-                  aria-expanded={researchModeOpen}
-                  onClick={() => setResearchModeOpen((open) => !open)}
+                  title="选择范围"
+                  aria-expanded={sourceScopeOpen}
+                  onClick={() => {
+                    setSourceScopeOpen((open) => !open);
+                    setResearchModeOpen(false);
+                  }}
                 >
-                  ⌕ Fast Research⌄
+                  <span className={sourceScope === "ynu" ? "source-scope-glyph source-scope-glyph-ynu" : "source-scope-glyph source-scope-glyph-web"} />
+                  <span>{sourceScope === "ynu" ? "云大学堂" : "Web"}</span>
+                  <span className="source-chevron" />
                 </button>
-                {researchModeOpen ? (
-                  <div className="research-mode-menu">
-                    <button type="button" className="research-mode-option" onClick={() => setResearchModeOpen(false)}>
-                      <span className="research-mode-icon">⌕</span>
+                {sourceScopeOpen ? (
+                  <div className="research-mode-menu source-scope-menu">
+                    <button
+                      type="button"
+                      className="research-mode-option"
+                      onClick={() => {
+                        onSourceScopeChange("web");
+                        setSourceScopeOpen(false);
+                      }}
+                    >
+                      <span className="source-scope-glyph source-scope-glyph-web" />
                       <span>
-                        <strong>Fast Research</strong>
-                        <small>非常适合快速获得结果</small>
+                        <strong>Web</strong>
+                        <small>从网络搜索补充资料</small>
                       </span>
                     </button>
-                    <button type="button" className="research-mode-option" onClick={() => setResearchModeOpen(false)}>
-                      <span className="research-mode-icon">◎</span>
+                    <button
+                      type="button"
+                      className="research-mode-option"
+                      onClick={() => {
+                        onSourceScopeChange("ynu");
+                        setSourceScopeOpen(false);
+                        setResearchModeOpen(false);
+                      }}
+                    >
+                      <span className="source-scope-glyph source-scope-glyph-ynu" />
                       <span>
-                        <strong>Deep Research</strong>
-                        <small>获得深入报告和结果</small>
+                        <strong>云大学堂</strong>
+                        <small>导入课堂直录播语音文本</small>
                       </span>
                     </button>
                   </div>
                 ) : null}
               </div>
+              {sourceScope === "web" ? (
+                <div className="research-mode-wrap">
+                  <button
+                    className="mini-source-button"
+                    type="button"
+                    title="搜索方式"
+                    aria-expanded={researchModeOpen}
+                    onClick={() => {
+                      setResearchModeOpen((open) => !open);
+                      setSourceScopeOpen(false);
+                    }}
+                  >
+                    <span className="source-search-glyph" />
+                    <span>Fast Research</span>
+                    <span className="source-chevron" />
+                  </button>
+                  {researchModeOpen ? (
+                    <div className="research-mode-menu">
+                      <button type="button" className="research-mode-option" onClick={() => setResearchModeOpen(false)}>
+                        <span className="research-mode-icon">⌕</span>
+                        <span>
+                          <strong>Fast Research</strong>
+                          <small>非常适合快速获得结果</small>
+                        </span>
+                      </button>
+                      <button type="button" className="research-mode-option" onClick={() => setResearchModeOpen(false)}>
+                        <span className="research-mode-icon">◎</span>
+                        <span>
+                          <strong>Deep Research</strong>
+                          <small>获得深入报告和结果</small>
+                        </span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="mini-source-button mini-source-button-muted">课堂直录播</span>
+              )}
             </div>
           </form>
+          {sourceScope === "ynu" && (!ynuConnected || showYnuConnection) ? (
+            <YnuConnectionCard
+              connected={ynuConnected}
+              message={ynuMessage}
+              username={ynuUsername}
+              password={ynuPassword}
+              cookie={ynuCookie}
+              showCookieLogin={showCookieLogin}
+              busy={busy === "正在登录云大学堂"}
+              onUsername={setYnuUsername}
+              onPassword={setYnuPassword}
+              onCookie={setYnuCookie}
+              onToggleCookie={() => setShowCookieLogin((value) => !value)}
+              onLogin={() => void loginYnu()}
+            />
+          ) : sourceScope === "ynu" ? (
+            <YnuConnectedCard
+              message={ynuMessage}
+              onReconnect={() => setShowYnuConnection(true)}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -230,6 +361,16 @@ export function SourcesPanel({
             onToggleAll={toggleAll}
             onAdd={() => void addSelected()}
             onClear={clearResearch}
+          />
+        ) : null}
+
+        {sourceScope === "ynu" && (isYnuBusy || ynuCourses.length > 0) ? (
+          <YnuCourseResults
+            items={ynuCourses}
+            connected={ynuConnected}
+            busy={isYnuBusy}
+            courseStatus={courseStatus}
+            onImport={(course) => void importCourse(course)}
           />
         ) : null}
 
@@ -264,12 +405,138 @@ function CollapsedSources({
       <div className="rail-history">
         {sources.slice(0, 8).map((source) => (
           <button key={source.id} className="collapsed-icon" onClick={() => onOpen(source.id)} title={source.title}>
-            {source.kind === "web" ? "⌕" : source.kind === "seed" ? "◇" : source.title.toLowerCase().endsWith(".pdf") ? "PDF" : "▣"}
+            {source.kind === "web" ? "⌕" : source.kind === "lecture" ? "课" : source.kind === "seed" ? "◇" : source.title.toLowerCase().endsWith(".pdf") ? "PDF" : "▣"}
           </button>
         ))}
       </div>
     </aside>
   );
+}
+
+function YnuConnectedCard({ message, onReconnect }: { message: string | null; onReconnect: () => void }) {
+  return (
+    <div className="ynu-connected-card">
+      <span className="ynu-dot ynu-dot-on" />
+      <span>{message || "云大学堂已连接"}</span>
+      <button type="button" onClick={onReconnect}>更换登录</button>
+    </div>
+  );
+}
+
+function YnuConnectionCard({
+  connected,
+  message,
+  username,
+  password,
+  cookie,
+  showCookieLogin,
+  busy,
+  onUsername,
+  onPassword,
+  onCookie,
+  onToggleCookie,
+  onLogin,
+}: {
+  connected: boolean;
+  message: string | null;
+  username: string;
+  password: string;
+  cookie: string;
+  showCookieLogin: boolean;
+  busy: boolean;
+  onUsername: (value: string) => void;
+  onPassword: (value: string) => void;
+  onCookie: (value: string) => void;
+  onToggleCookie: () => void;
+  onLogin: () => void;
+}) {
+  return (
+    <div className="ynu-login-card">
+      <div className="ynu-login-head">
+        <span className={connected ? "ynu-dot ynu-dot-on" : "ynu-dot"} />
+        <span>{connected ? (message || "云大学堂已连接") : "连接云南大学统一认证"}</span>
+        <button type="button" onClick={onToggleCookie}>{showCookieLogin ? "账号密码" : "Cookie"}</button>
+      </div>
+      {showCookieLogin ? (
+        <textarea
+          className="ynu-cookie-input"
+          value={cookie}
+          onChange={(event) => onCookie(event.target.value)}
+          placeholder="粘贴 course.ynu.edu.cn 的 Cookie"
+          rows={3}
+        />
+      ) : (
+        <div className="ynu-login-grid">
+          <input value={username} onChange={(event) => onUsername(event.target.value)} placeholder="统一认证用户名" autoComplete="username" />
+          <input value={password} onChange={(event) => onPassword(event.target.value)} placeholder="密码" type="password" autoComplete="current-password" />
+        </div>
+      )}
+      <button className="ynu-login-button" type="button" disabled={busy || (!showCookieLogin && (!username.trim() || !password)) || (showCookieLogin && !cookie.trim())} onClick={onLogin}>
+        {busy ? "连接中..." : connected ? "重新连接" : "连接云大学堂"}
+      </button>
+    </div>
+  );
+}
+
+function YnuCourseResults({
+  items,
+  connected,
+  busy,
+  courseStatus,
+  onImport,
+}: {
+  items: YnuCourse[];
+  connected: boolean;
+  busy: boolean;
+  courseStatus: Record<string, "adding" | "added" | "failed">;
+  onImport: (course: YnuCourse) => void;
+}) {
+  if (busy && !items.length) {
+    return <ResearchProgressCard step={2} isAdding={false} />;
+  }
+  if (!connected) {
+    return null;
+  }
+  return (
+    <section className="ynu-results">
+      <div className="ynu-results-title">
+        <span>🎓</span>
+        <strong>云大学堂课程</strong>
+        <small>{items.length ? `${items.length} 条可导入录播` : "暂无匹配课程"}</small>
+      </div>
+      <div className="ynu-course-list">
+        {items.map((course) => {
+          const key = ynuCourseKey(course);
+          const status = courseStatus[key];
+          return (
+            <div className="ynu-course-row" key={key}>
+              <div className="ynu-course-icon">课</div>
+              <div className="min-w-0">
+                <p className="truncate">{course.course_name || course.title}</p>
+                <div>
+                  {[course.teacher, course.school_year, course.semester, course.week, course.section].filter(Boolean).map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+                </div>
+              </div>
+              <button type="button" disabled={status === "adding" || status === "added" || !course.record_id || !course.course_id} onClick={() => onImport(course)}>
+                {status === "adding" ? (
+                  <>
+                    <span className="ynu-button-spinner" />
+                    导入中
+                  </>
+                ) : status === "added" ? "已导入" : status === "failed" ? "重试" : "导入转写"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ynuCourseKey(course: YnuCourse) {
+  return course.record_id || `${course.course_id}-${course.school_year}-${course.semester}`;
 }
 
 function InlineSearchResults({
@@ -385,7 +652,7 @@ function statusLabel(status: "adding" | "added" | "failed") {
 
 function SourceItem({ source, onClick }: { source: Source; onClick: () => void }) {
   const isReady = source.status === "ready";
-  const symbol = source.kind === "web" ? "⌕" : source.kind === "seed" ? "◇" : "▣";
+  const symbol = source.kind === "web" ? "⌕" : source.kind === "lecture" ? "课" : source.kind === "seed" ? "◇" : "▣";
   return (
     <button className="group w-full rounded-xl border border-transparent bg-white p-3 text-left transition hover:bg-[#f8fafd]" onClick={onClick}>
       <div className="flex items-start gap-3">
@@ -523,7 +790,7 @@ function QualityPill({ source }: { source: Source }) {
     partial: "部分正文",
     fallback: "摘要兜底",
     failed: "抓取失败",
-    unknown: source.kind === "file" ? "文件来源" : source.kind === "seed" ? "种子来源" : "未知质量",
+    unknown: source.kind === "file" ? "文件来源" : source.kind === "lecture" ? "课堂转写" : source.kind === "seed" ? "种子来源" : "未知质量",
   }[status];
   return <span className={`quality-pill quality-${status}`}>{label}</span>;
 }

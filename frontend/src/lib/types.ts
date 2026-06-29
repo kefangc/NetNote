@@ -8,14 +8,15 @@ export type Citation = {
 export type Source = {
   id: string;
   title: string;
-  kind: "file" | "web" | "seed";
+  kind: "file" | "web" | "seed" | "lecture";
   status: string;
   summary: string;
   url?: string;
   error?: string;
   extraction_status: "complete" | "partial" | "fallback" | "failed" | "unknown";
-  extraction_method: "jina_reader" | "trafilatura" | "html_fallback" | "search_snippet" | "file" | "seed" | "unknown";
+  extraction_method: "jina_reader" | "trafilatura" | "html_fallback" | "search_snippet" | "ynu_transcript" | "file" | "seed" | "unknown";
   content_length: number;
+  metadata?: Record<string, unknown>;
   chunks: { id: string; text: string; location: string; keywords: string[] }[];
 };
 
@@ -63,6 +64,22 @@ export type WebCandidate = {
   content: string;
   domain: string;
   source_provider: string;
+};
+
+export type SourceScope = "web" | "ynu";
+
+export type YnuCourse = {
+  course_id: string;
+  record_id: string;
+  course_name: string;
+  title: string;
+  teacher: string;
+  school_year: string;
+  semester: string;
+  week: string;
+  section: string;
+  url: string;
+  raw?: Record<string, unknown>;
 };
 
 export type QuizQuestion = {
