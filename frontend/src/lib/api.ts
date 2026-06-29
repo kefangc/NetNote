@@ -59,6 +59,38 @@ export async function generateArtifact(kind: ArtifactKind, prompt?: string) {
   );
 }
 
+export async function renameArtifact(artifactId: string, title: string) {
+  return asJson<Workspace>(
+    await fetch(`${API_BASE}/artifacts/${artifactId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+  );
+}
+
+export async function deleteArtifact(artifactId: string) {
+  return asJson<Workspace>(
+    await fetch(`${API_BASE}/artifacts/${artifactId}`, {
+      method: "DELETE",
+    }),
+  );
+}
+
+export async function shareArtifact(artifactId: string) {
+  return asJson<{ ok: boolean; share_url: string; artifact: Artifact }>(
+    await fetch(`${API_BASE}/artifacts/${artifactId}/share`, {
+      method: "POST",
+    }),
+  );
+}
+
+export async function getSharedArtifact(artifactId: string) {
+  return asJson<{ workspace_id: string; course_title: string; artifact: Artifact }>(
+    await fetch(`${API_BASE}/shared/artifacts/${artifactId}`, { cache: "no-store" }),
+  );
+}
+
 export async function streamChat(message: string, onChunk: (chunk: string) => void) {
   const response = await fetch(`${API_BASE}/chat`, {
     method: "POST",

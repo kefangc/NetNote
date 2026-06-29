@@ -1,11 +1,15 @@
 "use client";
 
+import { toPng } from "html-to-image";
+import jsPDF from "jspdf";
+import PptxGenJS from "pptxgenjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DetailTitle, EmptyState, ScoreRing, TokenList } from "./Common";
+import { createPortal } from "react-dom";
+import { CollapseButton, DetailTitle, EmptyState, ScoreRing, TokenList } from "./Common";
 import { Markdown } from "./Markdown";
 import { artifactIcon } from "@/lib/artifacts";
 import { reviewFlashcard, submitQuiz } from "@/lib/api";
-import type { Artifact, Flashcard, MindMapNode, Profile, QuizQuestion } from "@/lib/types";
+import type { Artifact, Flashcard, MindMapNode, PresentationData, PresentationSlide, Profile, QuizQuestion } from "@/lib/types";
 
 export function ArtifactDetail({
   artifact,
@@ -13,12 +17,14 @@ export function ArtifactDetail({
   onAsk,
   onRefresh,
   onClose,
+  onCollapse,
 }: {
   artifact: Artifact;
   profile?: Profile;
   onAsk: (text: string) => void;
   onRefresh: () => Promise<void>;
   onClose?: () => void;
+  onCollapse?: () => void;
 }) {
   if (artifact.kind === "summary") return <SummaryView artifact={artifact} profile={profile} />;
   if (artifact.kind === "flashcards") return <FlashcardsView artifact={artifact} onRefresh={onRefresh} />;
@@ -26,7 +32,329 @@ export function ArtifactDetail({
   if (artifact.kind === "mindmap") return <MindMapView artifact={artifact} onAsk={onAsk} onClose={onClose} />;
   if (artifact.kind === "qa") return <QaView artifact={artifact} onAsk={onAsk} />;
   if (artifact.kind === "reading") return <ReadingView artifact={artifact} />;
+  if (artifact.kind === "presentation") return <PresentationView artifact={artifact} onClose={onClose} onCollapse={onCollapse} />;
   return <EmptyState text="暂不支持该生成物。" />;
+}
+
+function PresentationView({ artifact, onClose, onCollapse }: { artifact: Artifact; onClose?: () => void; onCollapse?: () => void }) {
+  const data = artifact.data as PresentationData;
+  const slides = data.slides ?? [];
+  const [index, setIndex] = useState(0);
+  const [exporting, setExporting] = useState<"pdf" | "pptx" | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const exportRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const activeSlide = slides[index];
+
+  if (!slides.length) return <EmptyState text="暂无演示文稿。" />;
+
+  function safeFileName(extension: string) {
+    const base = (data.title || artifact.title || "netnote-presentation").replace(/[\\/:*?"<>|]/g, "_");
+    return `${base}.${extension}`;
+  }
+
+  async function captureSlides() {
+    const nodes = exportRefs.current.slice(0, slides.length);
+    const images: string[] = [];
+    for (const node of nodes) {
+      if (!node) continue;
+      images.push(await toPng(node, {
+        width: 1280,
+        height: 720,
+        pixelRatio: 2,
+        cacheBust: true,
+        backgroundColor: "#f8f9ff",
+      }));
+    }
+    return images;
+  }
+
+  async function downloadPdf() {
+    setExporting("pdf");
+    try {
+      const images = await captureSlides();
+      const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [1280, 720], compress: true });
+      images.forEach((image, page) => {
+        if (page > 0) pdf.addPage([1280, 720], "landscape");
+        pdf.addImage(image, "PNG", 0, 0, 1280, 720);
+      });
+      pdf.save(safeFileName("pdf"));
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function downloadPptx() {
+    setExporting("pptx");
+    try {
+      const images = await captureSlides();
+      const pptx = new PptxGenJS();
+      pptx.layout = "LAYOUT_WIDE";
+      pptx.author = "NetNote";
+      pptx.subject = data.subtitle || artifact.title;
+      pptx.title = data.title || artifact.title;
+      images.forEach((image) => {
+        const slide = pptx.addSlide();
+        slide.background = { color: "F8F9FF" };
+        slide.addImage({ data: image, x: 0, y: 0, w: 13.333, h: 7.5 });
+      });
+      await pptx.writeFile({ fileName: safeFileName("pptx") });
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  const sourceCount = Math.max(1, new Set(slides.flatMap((slide) => slide.citations ?? [])).size || 3);
+  const expandedLayer = expanded ? (
+    <div className="presentation-expanded-backdrop" onClick={() => setExpanded(false)}>
+      <div className="presentation-expanded-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="presentation-expanded-header">
+          <input value={data.title || artifact.title} readOnly aria-label="演示文稿标题" />
+          <div className="presentation-expanded-tools">
+            <button type="button" className="presentation-text-tool">✎ 修改</button>
+            <button type="button" aria-label="下一页" onClick={() => setIndex((value) => Math.min(slides.length - 1, value + 1))}>▶</button>
+            <button type="button" aria-label="下载 PDF" onClick={() => void downloadPdf()} disabled={Boolean(exporting)}>PDF</button>
+            <button type="button" aria-label="收起预览" onClick={() => setExpanded(false)}>⤡</button>
+            <button type="button" aria-label="关闭演示文稿" onClick={() => { setExpanded(false); onClose?.(); }}>×</button>
+            <button type="button" aria-label="下载 PPTX" onClick={() => void downloadPptx()} disabled={Boolean(exporting)}>PPT</button>
+          </div>
+        </div>
+        <button type="button" className="presentation-expanded-source">查看提示和 {sourceCount} 个来源</button>
+        <div className="presentation-expanded-body">
+          <div className="presentation-expanded-main">
+            <SlideFrame slide={activeSlide} index={index} total={slides.length} title={data.title} mode="contain" />
+            <div className="presentation-zoom-tools">
+              <button type="button" aria-label="放大">＋</button>
+              <button type="button" aria-label="缩小">−</button>
+            </div>
+          </div>
+          <div className="presentation-expanded-thumbs">
+            {slides.map((slide, slideIndex) => (
+              <button
+                key={slide.id}
+                type="button"
+                className={slideIndex === index ? "presentation-expanded-thumb-active" : ""}
+                onClick={() => setIndex(slideIndex)}
+                aria-label={`查看第 ${slideIndex + 1} 页`}
+              >
+                <span>{slideIndex + 1}</span>
+                <SlideFrame slide={slide} index={slideIndex} total={slides.length} title={data.title} className="presentation-thumb-frame" />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <div className="presentation-detail">
+      <div className="presentation-studio-heading">
+        <button type="button" className="presentation-back-button" title="返回上一级" aria-label="返回上一级" onClick={onClose}>‹</button>
+        <div className="presentation-heading-copy">
+          <h2>{data.title || artifact.title}</h2>
+          <p>演示文稿</p>
+        </div>
+        {onCollapse ? <CollapseButton label="关闭 Studio" onClick={onCollapse} /> : null}
+      </div>
+      <div className="presentation-detail-header">
+        <div className="presentation-title-block">
+          <div className="presentation-title-row">
+            <div className="presentation-current-title">
+              <span>{artifactIcon(artifact.kind)}</span>
+              <h3>{data.title || artifact.title}</h3>
+            </div>
+            <div className="presentation-detail-actions">
+              <button type="button" title="修改">✎</button>
+              <button type="button" title="播放" onClick={() => setExpanded(true)}>▶</button>
+              <button type="button" title={exporting === "pdf" ? "PDF 导出中" : "下载 PDF"} onClick={() => void downloadPdf()} disabled={Boolean(exporting)}>PDF</button>
+              <button type="button" title="展开" aria-label="展开演示文稿" onClick={() => setExpanded(true)}>⤢</button>
+              <button type="button" title={exporting === "pptx" ? "PPTX 导出中" : "下载 PPTX"} onClick={() => void downloadPptx()} disabled={Boolean(exporting)}>PPT</button>
+            </div>
+          </div>
+          <button type="button" className="presentation-source-pill">查看提示和 {sourceCount} 个来源</button>
+        </div>
+      </div>
+
+      <div className="presentation-page-scroll">
+        {slides.map((slide, slideIndex) => (
+          <button
+            key={slide.id}
+            type="button"
+            className="presentation-page-card"
+            onClick={() => {
+              setIndex(slideIndex);
+              setExpanded(true);
+            }}
+          >
+            <SlideFrame slide={slide} index={slideIndex} total={slides.length} title={data.title} className="presentation-page-frame" />
+          </button>
+        ))}
+      </div>
+
+      {typeof document !== "undefined" && expandedLayer ? createPortal(expandedLayer, document.body) : null}
+
+      <div className="presentation-export-stage" aria-hidden="true">
+        {slides.map((slide, slideIndex) => (
+          <div
+            key={slide.id}
+            ref={(node) => {
+              exportRefs.current[slideIndex] = node;
+            }}
+            className="presentation-export-slide"
+          >
+            <SlideCanvas slide={slide} index={slideIndex} total={slides.length} title={data.title} exportMode />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SlideFrame({
+  slide,
+  index,
+  total,
+  title,
+  className = "",
+  mode = "width",
+  compact = false,
+}: {
+  slide: PresentationSlide;
+  index: number;
+  total: number;
+  title?: string;
+  className?: string;
+  mode?: "width" | "contain";
+  compact?: boolean;
+}) {
+  return (
+    <div className={`presentation-slide-frame presentation-slide-frame-${mode} ${className}`}>
+      <SlideCanvas slide={slide} index={index} total={total} title={title} compact={compact} />
+    </div>
+  );
+}
+
+function SlideCanvas({ slide, index, total, title, exportMode = false, compact = false }: { slide: PresentationSlide; index: number; total: number; title?: string; exportMode?: boolean; compact?: boolean }) {
+  return (
+    <section className={`presentation-slide presentation-slide-${slide.layout} ${exportMode ? "presentation-slide-export" : ""} ${compact ? "presentation-slide-compact" : ""}`}>
+      <div className="presentation-bg-grid" />
+      <div className="presentation-slide-header">
+        <span>NetNote</span>
+        <span>{String(index + 1).padStart(2, "0")} / {String(total).padStart(2, "0")}</span>
+      </div>
+      <div className="presentation-slide-body">
+        <SlideBody slide={slide} deckTitle={title} />
+      </div>
+      <div className="presentation-slide-footer">
+        <span>{title || "个性化学习讲义"}</span>
+        <span>让学习更有结构</span>
+      </div>
+    </section>
+  );
+}
+
+function SlideBody({ slide, deckTitle }: { slide: PresentationSlide; deckTitle?: string }) {
+  if (slide.layout === "cover") {
+    return (
+      <div className="presentation-cover">
+        <p className="presentation-cover-chip">AI Generated Slides</p>
+        <h2>{slide.title || deckTitle}</h2>
+        {slide.subtitle ? <p>{slide.subtitle}</p> : null}
+        <SlideBulletList items={slide.bullets} />
+      </div>
+    );
+  }
+  if (slide.layout === "section") {
+    return (
+      <div className="presentation-section">
+        <span>Chapter</span>
+        <h2>{slide.title}</h2>
+        {slide.subtitle ? <p>{slide.subtitle}</p> : null}
+        <SlideBulletList items={slide.bullets} />
+      </div>
+    );
+  }
+  if (slide.layout === "two-column") {
+    return (
+      <div>
+        <h2 className="presentation-slide-title">{slide.title}</h2>
+        <div className="presentation-two-col">
+          <div>
+            <h3>{slide.leftTitle || "左侧观点"}</h3>
+            <SlideBulletList items={slide.leftItems} />
+          </div>
+          <div>
+            <h3>{slide.rightTitle || "右侧观点"}</h3>
+            <SlideBulletList items={slide.rightItems} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (slide.layout === "timeline") {
+    return (
+      <div>
+        <h2 className="presentation-slide-title">{slide.title}</h2>
+        <div className="presentation-timeline">
+          {(slide.steps ?? []).map((step, stepIndex) => (
+            <div key={`${step}-${stepIndex}`}>
+              <span>{stepIndex + 1}</span>
+              <p>{step}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (slide.layout === "quote") {
+    return (
+      <div className="presentation-quote">
+        <blockquote>{slide.quote || slide.title}</blockquote>
+        {slide.subtitle ? <p>{slide.subtitle}</p> : null}
+      </div>
+    );
+  }
+  if (slide.layout === "quiz") {
+    return (
+      <div>
+        <h2 className="presentation-slide-title">{slide.title}</h2>
+        <div className="presentation-quiz">
+          <p>{slide.question || "请回答这一页的问题。"}</p>
+          <div>
+            {(slide.options ?? []).map((option, optionIndex) => (
+              <span key={option}>{String.fromCharCode(65 + optionIndex)}. {option}</span>
+            ))}
+          </div>
+          {slide.answer ? <small>参考答案：{slide.answer}</small> : null}
+        </div>
+      </div>
+    );
+  }
+  if (slide.layout === "summary") {
+    return (
+      <div className="presentation-summary">
+        <h2>{slide.title}</h2>
+        <SlideBulletList items={slide.bullets} />
+      </div>
+    );
+  }
+  return (
+    <div>
+      <h2 className="presentation-slide-title">{slide.title}</h2>
+      {slide.subtitle ? <p className="presentation-slide-subtitle">{slide.subtitle}</p> : null}
+      <SlideBulletList items={slide.bullets} />
+    </div>
+  );
+}
+
+function SlideBulletList({ items }: { items?: string[] }) {
+  const list = (items ?? []).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <ul className="presentation-bullets">
+      {list.map((item) => <li key={item}>{item}</li>)}
+    </ul>
+  );
 }
 
 function SummaryView({ artifact, profile }: { artifact: Artifact; profile?: Profile }) {

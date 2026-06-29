@@ -26,7 +26,7 @@ export type Message = {
   citations: Citation[];
 };
 
-export type ArtifactKind = "summary" | "flashcards" | "quiz" | "mindmap" | "qa" | "reading" | "report";
+export type ArtifactKind = "summary" | "flashcards" | "quiz" | "mindmap" | "qa" | "reading" | "report" | "presentation";
 
 export type Artifact = {
   id: string;
@@ -86,4 +86,30 @@ export type MindMapNode = {
   label: string;
   detail: string;
   children: MindMapNode[];
+};
+
+export type PresentationSlide = {
+  id: string;
+  layout: "cover" | "section" | "bullets" | "two-column" | "timeline" | "quote" | "quiz" | "summary";
+  title: string;
+  subtitle?: string;
+  bullets?: string[];
+  leftTitle?: string;
+  leftItems?: string[];
+  rightTitle?: string;
+  rightItems?: string[];
+  steps?: string[];
+  quote?: string;
+  question?: string;
+  options?: string[];
+  answer?: string;
+  notes?: string;
+  citations?: string[];
+};
+
+export type PresentationData = {
+  title: string;
+  subtitle?: string;
+  theme: "netnote-blue";
+  slides: PresentationSlide[];
 };

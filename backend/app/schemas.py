@@ -95,9 +95,12 @@ class MindMapNode(BaseModel):
     children: list["MindMapNode"] = Field(default_factory=list)
 
 
+ArtifactKind = Literal["summary", "flashcards", "quiz", "mindmap", "qa", "reading", "report", "presentation"]
+
+
 class Artifact(BaseModel):
     id: str
-    kind: Literal["summary", "flashcards", "quiz", "mindmap", "qa", "reading", "report"]
+    kind: ArtifactKind
     title: str
     status: Literal["generating", "ready", "failed"] = "ready"
     data: dict
@@ -133,8 +136,12 @@ class ChatRequest(BaseModel):
 
 
 class GenerateArtifactRequest(BaseModel):
-    kind: Literal["summary", "flashcards", "quiz", "mindmap", "qa", "reading"]
+    kind: Literal["summary", "flashcards", "quiz", "mindmap", "qa", "reading", "presentation"]
     prompt: str | None = None
+
+
+class RenameArtifactRequest(BaseModel):
+    title: str
 
 
 class WebSearchRequest(BaseModel):

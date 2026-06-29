@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactDetail } from "./ArtifactViews";
 import { CollapseButton, GeneratingCard, PanelHeader, SplitPanelIcon } from "./Common";
+import { deleteArtifact, renameArtifact, shareArtifact } from "@/lib/api";
 import { artifactIcon, artifactKinds, artifactLabel, studioStyle } from "@/lib/artifacts";
 import type { Artifact, ArtifactKind, Profile } from "@/lib/types";
 
@@ -31,6 +32,11 @@ export function StudioPanel({
 }) {
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
   const [customKind, setCustomKind] = useState<ArtifactKind | null>(null);
+  const [menuArtifactId, setMenuArtifactId] = useState<string | null>(null);
+  const [renamingArtifactId, setRenamingArtifactId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [savingRenameId, setSavingRenameId] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const visibleArtifacts = useMemo(
     () => artifacts.filter((artifact) => artifact.kind !== "summary" || artifact.data.manual === true),
     [artifacts],
@@ -40,6 +46,75 @@ export function StudioPanel({
   useEffect(() => {
     onOpenArtifactChange?.(openArtifact ?? null);
   }, [onOpenArtifactChange, openArtifact]);
+
+  useEffect(() => {
+    if (!menuArtifactId) return;
+    function closeOnBlank(event: PointerEvent) {
+      const target = event.target as Element | null;
+      if (target?.closest(".studio-artifact-menu, .studio-artifact-more")) return;
+      setMenuArtifactId(null);
+    }
+    document.addEventListener("pointerdown", closeOnBlank);
+    return () => document.removeEventListener("pointerdown", closeOnBlank);
+  }, [menuArtifactId]);
+
+  useEffect(() => {
+    if (!actionNotice) return;
+    const timer = window.setTimeout(() => setActionNotice(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [actionNotice]);
+
+  async function shareExistingArtifact(artifact: Artifact) {
+    setMenuArtifactId(null);
+    const result = await shareArtifact(artifact.id);
+    try {
+      await navigator.clipboard.writeText(result.share_url);
+      setActionNotice("分享链接已复制到剪贴板");
+    } catch {
+      setActionNotice(`分享链接已生成：${result.share_url}`);
+    }
+    await onRefresh();
+  }
+
+  function startRenameArtifact(artifact: Artifact) {
+    setMenuArtifactId(null);
+    setRenamingArtifactId(artifact.id);
+    setRenameDraft(artifact.title);
+  }
+
+  function cancelRenameArtifact() {
+    setRenamingArtifactId(null);
+    setRenameDraft("");
+  }
+
+  async function commitRenameArtifact(artifact: Artifact) {
+    const title = renameDraft.trim();
+    if (!title || title === artifact.title) {
+      cancelRenameArtifact();
+      return;
+    }
+    setSavingRenameId(artifact.id);
+    try {
+      await renameArtifact(artifact.id, title);
+      await onRefresh();
+      setActionNotice("名称已更新");
+      cancelRenameArtifact();
+    } catch (err) {
+      setActionNotice(err instanceof Error ? err.message : "重命名失败");
+    } finally {
+      setSavingRenameId(null);
+    }
+  }
+
+  async function deleteExistingArtifact(artifact: Artifact) {
+    if (!window.confirm(`删除“${artifact.title}”？`)) return;
+    setMenuArtifactId(null);
+    if (renamingArtifactId === artifact.id) cancelRenameArtifact();
+    if (openArtifactId === artifact.id) setOpenArtifactId(null);
+    await deleteArtifact(artifact.id);
+    setActionNotice("资源已删除");
+    await onRefresh();
+  }
 
   if (collapsed) {
     return (
@@ -55,20 +130,40 @@ export function StudioPanel({
           }}
         />
         {customKind ? (
-          <CustomGenerateDialog
-            kind={customKind}
-            onClose={() => setCustomKind(null)}
-            onGenerate={(prompt) => {
-              setCustomKind(null);
-              onGenerate(customKind, prompt);
-            }}
-          />
+          customKind === "presentation" ? (
+            <CustomPresentationDialog
+              onClose={() => setCustomKind(null)}
+              onGenerate={(prompt) => {
+                setCustomKind(null);
+                onGenerate("presentation", prompt);
+              }}
+            />
+          ) : (
+            <CustomGenerateDialog
+              kind={customKind}
+              onClose={() => setCustomKind(null)}
+              onGenerate={(prompt) => {
+                setCustomKind(null);
+                onGenerate(customKind, prompt);
+              }}
+            />
+          )
         ) : null}
       </>
     );
   }
 
   if (openArtifact) {
+    if (openArtifact.kind === "presentation") {
+      return (
+        <aside className="panel flex min-h-0 flex-col studio-enter">
+          <div className="min-h-0 flex-1 bg-white">
+            <ArtifactDetail artifact={openArtifact} profile={profile} onAsk={onAsk} onRefresh={onRefresh} onClose={() => setOpenArtifactId(null)} onCollapse={onCollapse} />
+          </div>
+        </aside>
+      );
+    }
+
     return (
       <aside className="panel flex min-h-0 flex-col studio-enter">
         <div className="flex h-[52px] shrink-0 items-center gap-2 border-b border-[#edf0f7] px-3">
@@ -82,7 +177,7 @@ export function StudioPanel({
           <CollapseButton label="收起 Studio" onClick={onCollapse} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto bg-white p-4">
-          <ArtifactDetail artifact={openArtifact} profile={profile} onAsk={onAsk} onRefresh={onRefresh} onClose={() => setOpenArtifactId(null)} />
+          <ArtifactDetail artifact={openArtifact} profile={profile} onAsk={onAsk} onRefresh={onRefresh} onClose={() => setOpenArtifactId(null)} onCollapse={onCollapse} />
         </div>
       </aside>
     );
@@ -104,24 +199,59 @@ export function StudioPanel({
         </div>
       </div>
       {customKind ? (
-        <CustomGeneratePopover
-          kind={customKind}
-          onClose={() => setCustomKind(null)}
-          onGenerate={(prompt) => {
-            setCustomKind(null);
-            onGenerate(customKind, prompt);
-          }}
-        />
+        customKind === "presentation" ? (
+          <CustomPresentationDialog
+            onClose={() => setCustomKind(null)}
+            onGenerate={(prompt) => {
+              setCustomKind(null);
+              onGenerate("presentation", prompt);
+            }}
+          />
+        ) : (
+          <CustomGeneratePopover
+            kind={customKind}
+            onClose={() => setCustomKind(null)}
+            onGenerate={(prompt) => {
+              setCustomKind(null);
+              onGenerate(customKind, prompt);
+            }}
+          />
+        )
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {busy?.startsWith("正在生成") ? <GeneratingCard label={busy} /> : null}
         <div className="space-y-2">
-        {visibleArtifacts.map((artifact) => (
-            <ArtifactListItem key={artifact.id} artifact={artifact} onClick={() => setOpenArtifactId(artifact.id)} />
+          {visibleArtifacts.map((artifact) => (
+            <ArtifactListItem
+              key={artifact.id}
+              artifact={artifact}
+              menuOpen={menuArtifactId === artifact.id}
+              renaming={renamingArtifactId === artifact.id}
+              renameDraft={renameDraft}
+              savingRename={savingRenameId === artifact.id}
+              onClick={() => setOpenArtifactId(artifact.id)}
+              onToggleMenu={() => setMenuArtifactId((current) => current === artifact.id ? null : artifact.id)}
+              onCloseMenu={() => setMenuArtifactId(null)}
+              onShare={() => void shareExistingArtifact(artifact)}
+              onRename={() => startRenameArtifact(artifact)}
+              onRenameDraftChange={setRenameDraft}
+              onCommitRename={() => void commitRenameArtifact(artifact)}
+              onCancelRename={cancelRenameArtifact}
+              onDelete={() => void deleteExistingArtifact(artifact)}
+              onCustomize={() => {
+                setMenuArtifactId(null);
+                setCustomKind(artifact.kind);
+              }}
+              onPlay={() => {
+                setMenuArtifactId(null);
+                setOpenArtifactId(artifact.id);
+              }}
+            />
           ))}
         </div>
       </div>
+      {actionNotice ? <div className="studio-action-toast" role="status">{actionNotice}</div> : null}
     </aside>
   );
 }
@@ -247,6 +377,84 @@ function CustomGeneratePopover({
   );
 }
 
+function CustomPresentationDialog({ onClose, onGenerate }: { onClose: () => void; onGenerate: (prompt: string) => void }) {
+  const [format, setFormat] = useState<"detailed" | "slides">("detailed");
+  const [language, setLanguage] = useState("中文");
+  const [duration, setDuration] = useState("默认");
+  const [prompt, setPrompt] = useState("");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const formatLabel = format === "detailed" ? "详细演示文稿：包含全文和详情，适合独立阅读或发送" : "演示用幻灯片：简洁直观，适合现场讲解";
+    onGenerate([
+      `格式：${formatLabel}`,
+      `语言：${language}`,
+      `时长：${duration}`,
+      prompt.trim() ? `补充要求：${prompt.trim()}` : "",
+    ].filter(Boolean).join("\n"));
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="presentation-custom-dialog" onSubmit={submit}>
+        <div className="presentation-custom-header">
+          <div className="flex items-center gap-3">
+            <span className="text-xl text-[#7b641f]">{artifactIcon("presentation")}</span>
+            <h3>自定义演示文稿</h3>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+        <div className="presentation-custom-body">
+          <p className="presentation-custom-label">格式</p>
+          <div className="presentation-format-grid">
+            <button type="button" className={`presentation-format-card ${format === "detailed" ? "presentation-format-card-active" : ""}`} onClick={() => setFormat("detailed")}>
+              <span>详细演示文稿</span>
+              <strong>✓</strong>
+              <p>一整套包含全文和详情的演示文稿，非常适合通过邮件发送或单独阅读。</p>
+            </button>
+            <button type="button" className={`presentation-format-card ${format === "slides" ? "presentation-format-card-active" : ""}`} onClick={() => setFormat("slides")}>
+              <span>演示用幻灯片</span>
+              <strong>✓</strong>
+              <p>简洁直观的幻灯片，附带要介绍的重点，为您的演讲提供全程支持。</p>
+            </button>
+          </div>
+          <div className="presentation-custom-grid">
+            <label>
+              <span>选择语言</span>
+              <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+                <option>中文</option>
+                <option>English</option>
+              </select>
+            </label>
+            <label>
+              <span>时长</span>
+              <div className="presentation-duration">
+                {["短", "默认", "长"].map((item) => (
+                  <button key={item} type="button" className={duration === item ? "presentation-duration-active" : ""} onClick={() => setDuration(item)}>
+                    {duration === item ? "✓ " : ""}{item}
+                  </button>
+                ))}
+              </div>
+            </label>
+          </div>
+          <label className="presentation-prompt">
+            <span>请描述您要创建的演示文稿</span>
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="添加一份概略提纲，或指定受众、风格和重点：“为新手用户创建一套演示文稿，采用大胆活泼的风格，注重分步说明。”"
+              autoFocus
+            />
+          </label>
+        </div>
+        <div className="presentation-custom-footer">
+          <button>生成</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function CompactSelect({
   title,
   value,
@@ -268,18 +476,198 @@ function CompactSelect({
   );
 }
 
-function ArtifactListItem({ artifact, onClick }: { artifact: Artifact; onClick: () => void }) {
+function ArtifactListItem({
+  artifact,
+  menuOpen,
+  renaming,
+  renameDraft,
+  savingRename,
+  onClick,
+  onToggleMenu,
+  onCloseMenu,
+  onShare,
+  onRename,
+  onRenameDraftChange,
+  onCommitRename,
+  onCancelRename,
+  onDelete,
+  onCustomize,
+  onPlay,
+}: {
+  artifact: Artifact;
+  menuOpen: boolean;
+  renaming: boolean;
+  renameDraft: string;
+  savingRename: boolean;
+  onClick: () => void;
+  onToggleMenu: () => void;
+  onCloseMenu: () => void;
+  onShare: () => void;
+  onRename: () => void;
+  onRenameDraftChange: (value: string) => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onDelete: () => void;
+  onCustomize: () => void;
+  onPlay: () => void;
+}) {
+  const isPresentation = artifact.kind === "presentation";
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const ignoreNextBlurRef = useRef(false);
+
+  useEffect(() => {
+    if (!renaming) return;
+    const frame = window.requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [renaming]);
+
   return (
-    <button className="block w-full rounded-xl border border-transparent bg-white p-3 text-left transition hover:bg-[#f8fafd]" onClick={onClick}>
-      <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f1f3f4] text-[#5f6368]">{artifactIcon(artifact.kind)}</div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{artifact.title}</p>
-          <p className="mt-1 text-xs text-[#5f6368]">{artifactLabel(artifact.kind)} / {artifact.status}</p>
+    <div className={`studio-artifact-item ${renaming ? "studio-artifact-item-renaming" : ""}`}>
+      {renaming ? (
+        <>
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f1f3f4] text-[#5f6368]">{artifactIcon(artifact.kind)}</div>
+          <div className="min-w-0 flex-1">
+            <input
+              ref={renameInputRef}
+              className="studio-artifact-rename-input"
+              value={renameDraft}
+              disabled={savingRename}
+              aria-label={`重命名 ${artifact.title}`}
+              onChange={(event) => onRenameDraftChange(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={() => {
+                if (ignoreNextBlurRef.current) {
+                  ignoreNextBlurRef.current = false;
+                  return;
+                }
+                onCommitRename();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onCommitRename();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  ignoreNextBlurRef.current = true;
+                  onCancelRename();
+                }
+              }}
+            />
+            <p className="mt-1 text-xs text-[#5f6368]">{savingRename ? "正在保存..." : "回车保存，Esc 取消"}</p>
+          </div>
+        </>
+      ) : (
+        <button className="studio-artifact-open" type="button" onClick={onClick}>
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f1f3f4] text-[#5f6368]">{artifactIcon(artifact.kind)}</div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">{artifact.title}</p>
+            <p className="mt-1 text-xs text-[#5f6368]">{artifactLabel(artifact.kind)} / {artifact.status}</p>
+          </div>
+        </button>
+      )}
+      <button
+        type="button"
+        className="studio-artifact-more"
+        title="更多"
+        aria-label={`${artifact.title} 更多操作`}
+        aria-expanded={menuOpen}
+        disabled={renaming || savingRename}
+        onClick={(event) => {
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          const menuWidth = isPresentation ? 320 : 238;
+          const menuHeight = isPresentation ? 492 : 260;
+          const margin = 16;
+          const minTop = isPresentation ? 112 : 96;
+          setMenuPosition({
+            left: Math.min(Math.max(rect.right - menuWidth, margin), window.innerWidth - menuWidth - margin),
+            top: Math.min(Math.max(rect.bottom - menuHeight + 8, minTop), window.innerHeight - menuHeight - margin),
+          });
+          onToggleMenu();
+        }}
+      >
+        ⋮
+      </button>
+      {menuOpen ? (
+        <div className={`studio-artifact-menu ${isPresentation ? "studio-artifact-menu-presentation" : ""}`} style={menuPosition ?? undefined}>
+          <button type="button" onClick={onShare}><MenuIcon name="share" />分享</button>
+          <button type="button" onClick={onRename}><MenuIcon name="rename" />重命名</button>
+          {isPresentation ? (
+            <>
+              <button type="button" onClick={onCloseMenu}><MenuIcon name="pdf" />下载 PDF 文档 (.pdf)</button>
+              <button type="button" onClick={onCloseMenu}><MenuIcon name="powerpoint" />下载 PowerPoint (.pptx)</button>
+              <button type="button" onClick={onPlay}><MenuIcon name="play" />开始播放幻灯片</button>
+              <button type="button" onClick={onCustomize}><MenuIcon name="modify" />修改</button>
+            </>
+          ) : null}
+          <button type="button" onClick={onCloseMenu}><MenuIcon name="sources" />查看提示和来源</button>
+          <button type="button" onClick={onDelete}><MenuIcon name="delete" />删除</button>
         </div>
-        <span className="text-lg text-[#9aa0a6]">⋮</span>
-      </div>
-    </button>
+      ) : null}
+    </div>
+  );
+}
+
+function MenuIcon({ name }: { name: "share" | "rename" | "pdf" | "powerpoint" | "play" | "modify" | "sources" | "delete" }) {
+  if (name === "pdf" || name === "powerpoint") {
+    return (
+      <span className="studio-artifact-menu-file-icon" aria-hidden="true">
+        {name === "pdf" ? "PDF" : "P"}
+      </span>
+    );
+  }
+
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 2.2,
+  };
+
+  return (
+    <span className="studio-artifact-menu-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        {name === "share" ? (
+          <>
+            <circle cx="18" cy="5" r="2.6" {...common} />
+            <circle cx="6" cy="12" r="2.6" {...common} />
+            <circle cx="18" cy="19" r="2.6" {...common} />
+            <path d="M8.3 10.8 15.7 6.2M8.3 13.2l7.4 4.6" {...common} />
+          </>
+        ) : null}
+        {name === "rename" ? (
+          <>
+            <path d="M4 20h4.4L19.2 9.2a2.4 2.4 0 0 0-3.4-3.4L5 16.6 4 20Z" {...common} />
+            <path d="m14.5 7.1 2.4 2.4" {...common} />
+          </>
+        ) : null}
+        {name === "play" ? <path d="M8 5.5v13l10-6.5-10-6.5Z" {...common} /> : null}
+        {name === "modify" ? (
+          <>
+            <path d="M4 20h4.1L19 9.1a2.2 2.2 0 0 0-3.1-3.1L5 16.9 4 20Z" {...common} />
+            <path d="m14.2 7.7 2.1 2.1M6.7 5.2l.7-1.7.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7ZM17.8 15.1l.6-1.4.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6Z" {...common} />
+          </>
+        ) : null}
+        {name === "sources" ? (
+          <>
+            <path d="M12 22a9 9 0 1 1 9-9" {...common} />
+            <path d="M12 8v5l3 2M18.8 17.2v4M16.8 19.2h4" {...common} />
+            <path d="M18.4 4.5l1.1-2.2 1.1 2.2 2.2 1.1-2.2 1.1-1.1 2.2-1.1-2.2-2.2-1.1 2.2-1.1Z" {...common} />
+          </>
+        ) : null}
+        {name === "delete" ? (
+          <>
+            <path d="M5 7h14M10 11v6M14 11v6M7 7l1 14h8l1-14M9 7V4h6v3" {...common} />
+          </>
+        ) : null}
+      </svg>
+    </span>
   );
 }
 

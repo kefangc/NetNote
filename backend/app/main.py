@@ -4,7 +4,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -34,6 +34,7 @@ from .schemas import (
     GenerateArtifactRequest,
     Message,
     QuizSubmitRequest,
+    RenameArtifactRequest,
     Source,
     WorkspaceState,
 )
@@ -276,6 +277,60 @@ def generate_artifact(request: GenerateArtifactRequest):
     state.artifacts.insert(0, artifact)
     store.save(state)
     return artifact
+
+
+@app.patch("/artifacts/{artifact_id}")
+def rename_artifact(artifact_id: str, request: RenameArtifactRequest):
+    title = request.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Artifact title cannot be empty")
+    state = ensure_seed()
+    artifact = next((item for item in state.artifacts if item.id == artifact_id), None)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact.title = title
+    if artifact.kind == "presentation":
+        artifact.data["title"] = title
+    state.study_events.append({"type": "artifact_rename", "artifact_id": artifact_id, "title": title})
+    return store.save(state)
+
+
+@app.delete("/artifacts/{artifact_id}")
+def delete_artifact(artifact_id: str):
+    state = ensure_seed()
+    original_count = len(state.artifacts)
+    state.artifacts = [artifact for artifact in state.artifacts if artifact.id != artifact_id]
+    if len(state.artifacts) == original_count:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    state.study_events.append({"type": "artifact_delete", "artifact_id": artifact_id})
+    return store.save(state)
+
+
+@app.post("/artifacts/{artifact_id}/share")
+def share_artifact(artifact_id: str, request: Request):
+    state = ensure_seed()
+    artifact = next((item for item in state.artifacts if item.id == artifact_id), None)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    origin = request.headers.get("origin")
+    share_url = (
+        f"{origin.rstrip('/')}/share/artifacts/{artifact_id}"
+        if origin
+        else str(request.url_for("get_shared_artifact", artifact_id=artifact_id))
+    )
+    artifact.data["share_url"] = share_url
+    state.study_events.append({"type": "artifact_share", "artifact_id": artifact_id, "share_url": share_url})
+    store.save(state)
+    return {"ok": True, "share_url": share_url, "artifact": artifact}
+
+
+@app.get("/shared/artifacts/{artifact_id}")
+def get_shared_artifact(artifact_id: str):
+    state = ensure_seed()
+    artifact = next((item for item in state.artifacts if item.id == artifact_id), None)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"workspace_id": state.workspace_id, "course_title": state.course_title, "artifact": artifact}
 
 
 @app.post("/quiz/{artifact_id}/submit")

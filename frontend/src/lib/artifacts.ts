@@ -9,6 +9,7 @@ export function artifactLabel(kind: ArtifactKind) {
     qa: "问答卡片",
     reading: "拓展阅读",
     report: "报告",
+    presentation: "演示文稿",
   };
   return labels[kind];
 }
@@ -22,6 +23,7 @@ export function artifactIcon(kind: ArtifactKind) {
     qa: "❖",
     reading: "☰",
     report: "▥",
+    presentation: "▭",
   };
   return icons[kind];
 }
@@ -35,8 +37,9 @@ export function studioStyle(kind: ArtifactKind) {
     qa: { bg: "bg-[#f7e6e8]", text: "text-[#a44455]" },
     reading: { bg: "bg-[#dff2f6]", text: "text-[#247489]" },
     report: { bg: "bg-[#ebe8ff]", text: "text-[#5a4ca3]" },
+    presentation: { bg: "bg-[#f1f0e6]", text: "text-[#7b641f]" },
   };
   return styles[kind];
 }
 
-export const artifactKinds: ArtifactKind[] = ["summary", "flashcards", "quiz", "mindmap", "qa", "reading"];
+export const artifactKinds: ArtifactKind[] = ["summary", "presentation", "flashcards", "mindmap", "quiz", "qa", "reading"];

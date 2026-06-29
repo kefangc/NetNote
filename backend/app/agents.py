@@ -270,6 +270,7 @@ class ResourceAgent:
             "mindmap": "计算机网络思维导图",
             "qa": "问答卡片",
             "reading": "拓展阅读",
+            "presentation": "计算机网络演示文稿",
         }
         llm_data = self._generate_with_llm(kind, state, chunks, prompt)
         if llm_data:
@@ -286,6 +287,8 @@ class ResourceAgent:
             data = {"items": self._qa_cards(chunks)}
         elif kind == "reading":
             data = {"items": self._reading(chunks, prompt)}
+        elif kind == "presentation":
+            data = self._presentation(state, chunks, prompt)
         else:
             data = {"text": "未知生成类型"}
         return Artifact(id=make_id("artifact"), kind=kind, title=title_map.get(kind, "生成物"), data=data)
@@ -318,6 +321,7 @@ class ResourceAgent:
             "mindmap": '{"root":{"label":"计算机网络","detail":"...","children":[{"label":"...","detail":"...","children":[{"label":"...","detail":"...","children":[]}]}]}}',
             "qa": '{"items":[{"question":"...","answer":"...","topic":"..."}]}',
             "reading": '{"items":[{"title":"...","location":"...","reason":"...","snippet":"..."}]}',
+            "presentation": '{"title":"TCP 可靠传输机制","subtitle":"面向当前学生画像的结构化讲义","theme":"netnote-blue","slides":[{"id":"slide-1","layout":"cover","title":"TCP 可靠传输机制","subtitle":"确认、重传与滑动窗口","bullets":["学习目标 1","学习目标 2"],"notes":"讲解提示","citations":["来源标题 / 片段"]},{"id":"slide-2","layout":"bullets","title":"核心概念","bullets":["要点一","要点二","要点三"],"notes":"讲解提示","citations":["来源标题 / 片段"]}]}',
         }.get(kind)
         if not schema:
             return None
@@ -427,7 +431,48 @@ class ResourceAgent:
                     for item in raw.get("items", [])[:8]
                 ]
             }
+        if kind == "presentation":
+            return self._normalize_presentation(raw, chunks)
         return raw
+
+    def _normalize_presentation(self, raw: dict, chunks: list[SourceChunk]) -> dict:
+        allowed_layouts = {"cover", "section", "bullets", "two-column", "timeline", "quote", "quiz", "summary"}
+        slides = []
+        raw_slides = raw.get("slides") if isinstance(raw.get("slides"), list) else []
+        for index, slide in enumerate(raw_slides[:12]):
+            if not isinstance(slide, dict):
+                continue
+            layout = str(slide.get("layout") or "bullets")
+            if layout not in allowed_layouts:
+                layout = "bullets"
+            normalized = {
+                "id": str(slide.get("id") or f"slide-{index + 1}"),
+                "layout": layout,
+                "title": str(slide.get("title") or f"第 {index + 1} 页"),
+                "subtitle": str(slide.get("subtitle") or ""),
+                "bullets": [str(item) for item in slide.get("bullets", []) if item][:6],
+                "leftTitle": str(slide.get("leftTitle") or ""),
+                "leftItems": [str(item) for item in slide.get("leftItems", []) if item][:5],
+                "rightTitle": str(slide.get("rightTitle") or ""),
+                "rightItems": [str(item) for item in slide.get("rightItems", []) if item][:5],
+                "steps": [str(item) for item in slide.get("steps", []) if item][:6],
+                "quote": str(slide.get("quote") or ""),
+                "question": str(slide.get("question") or ""),
+                "options": [str(item) for item in slide.get("options", []) if item][:4],
+                "answer": str(slide.get("answer") or ""),
+                "notes": str(slide.get("notes") or ""),
+                "citations": [str(item) for item in slide.get("citations", []) if item][:4],
+            }
+            slides.append(normalized)
+        fallback = self._presentation(None, chunks, None)
+        if len(slides) < 6:
+            slides.extend(fallback["slides"][len(slides):])
+        return {
+            "title": str(raw.get("title") or fallback["title"]),
+            "subtitle": str(raw.get("subtitle") or fallback["subtitle"]),
+            "theme": "netnote-blue",
+            "slides": slides[:12],
+        }
 
     def _normalize_node(self, node: dict, fallback: str) -> dict:
         label = str(node.get("label") or fallback)
@@ -560,6 +605,91 @@ class ResourceAgent:
             }
             for chunk in selected
         ]
+
+    def _presentation(self, state: WorkspaceState | None, chunks: list[SourceChunk], prompt: str | None) -> dict:
+        concepts = self._concepts(chunks)
+        ready_sources = [source for source in state.sources if source.status == "ready"] if state else []
+        source_names = [source.title for source in ready_sources[:4]]
+        title = prompt.strip()[:36] if prompt and prompt.strip() else "计算机网络核心知识演示文稿"
+        topic_a = concepts[0] if concepts else "网络体系结构"
+        topic_b = concepts[1] if len(concepts) > 1 else "TCP/IP 协议"
+        topic_c = concepts[2] if len(concepts) > 2 else "可靠传输"
+        source_hint = "、".join(source_names) if source_names else "当前课程来源与种子知识库"
+        citations = [f"{chunk.source_title} / {chunk.location}" for chunk in chunks[:3]]
+        return {
+            "title": title,
+            "subtitle": f"基于 {source_hint} 自动生成",
+            "theme": "netnote-blue",
+            "slides": [
+                {
+                    "id": "slide-1",
+                    "layout": "cover",
+                    "title": title,
+                    "subtitle": "个性化学习讲义 · NetNote",
+                    "bullets": ["从来源材料提炼重点", "按课堂讲解节奏组织", "配合测验与思维导图复习"],
+                    "notes": "封面页用于说明本次讲义主题和学习目标。",
+                    "citations": citations[:1],
+                },
+                {
+                    "id": "slide-2",
+                    "layout": "section",
+                    "title": "本次学习目标",
+                    "subtitle": "先建立整体框架，再进入关键机制。",
+                    "bullets": [f"理解 {topic_a} 的核心含义", f"区分 {topic_b} 与相关概念", f"能够解释 {topic_c} 的流程和作用"],
+                    "notes": "用目标页把学生注意力聚焦到可检查的学习结果。",
+                    "citations": citations[:2],
+                },
+                {
+                    "id": "slide-3",
+                    "layout": "bullets",
+                    "title": "核心概念速览",
+                    "bullets": [self._explain_concept(item, chunks)[:96] for item in concepts[:4]] or [
+                        "计算机网络通过分层体系组织复杂通信过程。",
+                        "协议规定通信双方交换数据时必须遵守的格式与规则。",
+                        "可靠传输依赖序号、确认、重传和窗口等机制。",
+                    ],
+                    "notes": "这一页以短句解释概念，适合配合来源引用讲解。",
+                    "citations": citations,
+                },
+                {
+                    "id": "slide-4",
+                    "layout": "two-column",
+                    "title": "知识点对比",
+                    "leftTitle": topic_a,
+                    "leftItems": ["解决整体组织问题", "强调层次、接口与职责", "适合先画框架图理解"],
+                    "rightTitle": topic_b,
+                    "rightItems": ["解决具体通信规则问题", "强调报文、状态和过程", "适合结合例子逐步推演"],
+                    "notes": "用左右对比帮助学生区分相近概念。",
+                    "citations": citations[:2],
+                },
+                {
+                    "id": "slide-5",
+                    "layout": "timeline",
+                    "title": "推荐学习步骤",
+                    "steps": ["浏览来源概要", "标记不熟悉术语", "生成思维导图", "完成测验", "回看错题与闪卡", "继续追问薄弱点"],
+                    "notes": "这一页承接系统内的学习闭环。",
+                    "citations": [],
+                },
+                {
+                    "id": "slide-6",
+                    "layout": "quiz",
+                    "title": "课堂检查问题",
+                    "question": f"关于“{topic_c}”，下列哪种说法最符合当前来源？",
+                    "options": [f"{topic_c} 需要结合协议状态和反馈机制理解", f"{topic_c} 只属于物理层问题", f"{topic_c} 与传输过程无关", f"{topic_c} 不需要任何上下文"],
+                    "answer": "A",
+                    "notes": "用一个选择题把讲解转化为即时检测。",
+                    "citations": citations[:1],
+                },
+                {
+                    "id": "slide-7",
+                    "layout": "summary",
+                    "title": "总结与下一步",
+                    "bullets": [f"优先复习：{topic_a}", f"重点辨析：{topic_b}", f"继续追问：{topic_c}", "建议生成测验或闪卡巩固"],
+                    "notes": "最后给出可行动的下一步建议。",
+                    "citations": citations,
+                },
+            ],
+        }
 
     def _concepts(self, chunks: list[SourceChunk]) -> list[str]:
         counter = Counter()

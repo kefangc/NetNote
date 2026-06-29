@@ -7,6 +7,9 @@ V1 使用或预留使用以下开源项目。正式提交作品时需在系统�
 | Next.js | 前端应用框架 | MIT, https://nextjs.org |
 | React | 前端 UI | MIT, https://react.dev |
 | Tailwind CSS | 样式系统 | MIT, https://tailwindcss.com |
+| html-to-image | 浏览器端 DOM 截图，用于演示文稿导出 | MIT, https://github.com/bubkoo/html-to-image |
+| jsPDF | 浏览器端 PDF 生成，用于演示文稿导出 | MIT, https://github.com/parallax/jsPDF |
+| PptxGenJS | 浏览器端 PPTX 生成，用于图片版演示文稿导出 | MIT, https://github.com/gitbrent/PptxGenJS |
 | FastAPI | 后端 API | MIT, https://fastapi.tiangolo.com |
 | Uvicorn | ASGI 服务 | BSD-3-Clause, https://www.uvicorn.org |
 | Pydantic | 数据校验 | MIT, https://docs.pydantic.dev |
@@ -18,4 +21,3 @@ V1 使用或预留使用以下开源项目。正式提交作品时需在系统�
 | pgvector | V2 向量检索 | PostgreSQL License, https://github.com/pgvector/pgvector |
 | PaddleOCR | V2 OCR | Apache-2.0, https://github.com/PaddlePaddle/PaddleOCR |
 | LiteLLM | V2 模型网关 | MIT, https://docs.litellm.ai |
-
