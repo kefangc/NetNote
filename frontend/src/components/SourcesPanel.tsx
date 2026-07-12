@@ -24,6 +24,7 @@ export function SourcesPanel({
   onImportYnuCourse,
   onClearSearch,
   onAddCandidates,
+  onDeleteSource,
   onAsk,
   collapsed,
   onCollapse,
@@ -46,6 +47,7 @@ export function SourcesPanel({
   onImportYnuCourse: (course: YnuCourse) => Promise<void> | void;
   onClearSearch: () => void;
   onAddCandidates: (candidates: WebCandidate[]) => Promise<void> | void;
+  onDeleteSource: (sourceId: string) => Promise<void> | void;
   onAsk: (message: string) => void;
   collapsed: boolean;
   onCollapse: () => void;
@@ -54,6 +56,7 @@ export function SourcesPanel({
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string> | null>(null);
+  const [menuSourceId, setMenuSourceId] = useState<string | null>(null);
   const [candidateStatus, setCandidateStatus] = useState<Record<string, "adding" | "added" | "failed">>({});
   const [courseStatus, setCourseStatus] = useState<Record<string, "adding" | "added" | "failed">>({});
   const [sourceScopeOpen, setSourceScopeOpen] = useState(false);
@@ -76,6 +79,17 @@ export function SourcesPanel({
     ? addableResults.filter((item) => selectedUrls.has(item.url)).length
     : addableResults.length;
   const allSelected = addableResults.length > 0 && selectedCount === addableResults.length;
+
+  useEffect(() => {
+    if (!menuSourceId) return;
+    function closeOnBlank(event: PointerEvent) {
+      const target = event.target as Element | null;
+      if (target?.closest(".source-item-menu, .source-item-more")) return;
+      setMenuSourceId(null);
+    }
+    document.addEventListener("pointerdown", closeOnBlank);
+    return () => document.removeEventListener("pointerdown", closeOnBlank);
+  }, [menuSourceId]);
 
   useEffect(() => {
     if (!isSearching && !isAdding) {
@@ -174,6 +188,12 @@ export function SourcesPanel({
     } catch {
       setCourseStatus((current) => ({ ...current, [key]: "failed" }));
     }
+  }
+
+  async function deleteExistingSource(source: Source) {
+    setMenuSourceId(null);
+    if (openSourceId === source.id) setOpenSourceId(null);
+    await onDeleteSource(source.id);
   }
 
   if (collapsed) {
@@ -371,12 +391,23 @@ export function SourcesPanel({
             busy={isYnuBusy}
             courseStatus={courseStatus}
             onImport={(course) => void importCourse(course)}
+            onComplete={() => {
+              setCourseStatus({});
+              onClearSearch();
+            }}
           />
         ) : null}
 
         <div className="space-y-2">
           {sources.map((source) => (
-            <SourceItem key={source.id} source={source} onClick={() => setOpenSourceId(source.id)} />
+            <SourceItem
+              key={source.id}
+              source={source}
+              menuOpen={menuSourceId === source.id}
+              onClick={() => setOpenSourceId(source.id)}
+              onToggleMenu={() => setMenuSourceId((current) => current === source.id ? null : source.id)}
+              onDelete={() => void deleteExistingSource(source)}
+            />
           ))}
         </div>
       </div>
@@ -484,12 +515,14 @@ function YnuCourseResults({
   busy,
   courseStatus,
   onImport,
+  onComplete,
 }: {
   items: YnuCourse[];
   connected: boolean;
   busy: boolean;
   courseStatus: Record<string, "adding" | "added" | "failed">;
   onImport: (course: YnuCourse) => void;
+  onComplete: () => void;
 }) {
   if (busy && !items.length) {
     return <ResearchProgressCard step={2} isAdding={false} />;
@@ -502,6 +535,11 @@ function YnuCourseResults({
       <div className="ynu-results-title">
         <span>🎓</span>
         <strong>云大学堂课程</strong>
+        {items.length ? (
+          <button className="ynu-complete-button" type="button" onClick={onComplete}>
+            完成导入
+          </button>
+        ) : null}
         <small>{items.length ? `${items.length} 条可导入录播` : "暂无匹配课程"}</small>
       </div>
       <div className="ynu-course-list">
@@ -650,33 +688,77 @@ function statusLabel(status: "adding" | "added" | "failed") {
   }[status];
 }
 
-function SourceItem({ source, onClick }: { source: Source; onClick: () => void }) {
+function SourceItem({
+  source,
+  menuOpen,
+  onClick,
+  onToggleMenu,
+  onDelete,
+}: {
+  source: Source;
+  menuOpen: boolean;
+  onClick: () => void;
+  onToggleMenu: () => void;
+  onDelete: () => void;
+}) {
   const isReady = source.status === "ready";
   const symbol = source.kind === "web" ? "⌕" : source.kind === "lecture" ? "课" : source.kind === "seed" ? "◇" : "▣";
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
   return (
-    <button className="group w-full rounded-xl border border-transparent bg-white p-3 text-left transition hover:bg-[#f8fafd]" onClick={onClick}>
-      <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f1f3f4] text-sm text-[#5f6368]">{symbol}</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-semibold">{source.title}</p>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${isReady ? "bg-[#e7f1ec] text-[#27614f]" : "bg-[#fff3c7] text-[#856416]"}`}>
-              {isReady ? "ready" : source.status}
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <QualityPill source={source} />
-            {source.kind === "web" && source.content_length ? <span className="source-meta-chip">{source.content_length} 字</span> : null}
-          </div>
-          <p className="mt-1 line-clamp-3 text-xs leading-5 text-[#716a61]">{source.error || source.summary}</p>
-          <div className="mt-2 flex items-center gap-2 text-[11px] text-[#91887d]">
-            <span>{source.kind}</span>
-            <span>•</span>
-            <span>{source.chunks.length} chunks</span>
+    <div className="source-list-item">
+      <button className="source-list-open" type="button" onClick={onClick}>
+        <div className="flex items-start gap-3">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f1f3f4] text-sm text-[#5f6368]">{symbol}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm font-semibold">{source.title}</p>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${isReady ? "bg-[#e7f1ec] text-[#27614f]" : "bg-[#fff3c7] text-[#856416]"}`}>
+                {isReady ? "ready" : source.status}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <QualityPill source={source} />
+              {source.kind === "web" && source.content_length ? <span className="source-meta-chip">{source.content_length} 字</span> : null}
+            </div>
+            <p className="mt-1 line-clamp-3 text-xs leading-5 text-[#716a61]">{source.error || source.summary}</p>
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-[#91887d]">
+              <span>{source.kind}</span>
+              <span>•</span>
+              <span>{source.chunks.length} chunks</span>
+            </div>
           </div>
         </div>
-      </div>
-    </button>
+      </button>
+      <button
+        className="source-item-more"
+        type="button"
+        title="更多"
+        aria-label={`${source.title} 更多操作`}
+        aria-expanded={menuOpen}
+        onClick={(event) => {
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          const menuWidth = 190;
+          const menuHeight = 72;
+          const margin = 16;
+          setMenuPosition({
+            left: Math.min(Math.max(rect.right - menuWidth, margin), window.innerWidth - menuWidth - margin),
+            top: Math.min(Math.max(rect.bottom - menuHeight + 8, margin), window.innerHeight - menuHeight - margin),
+          });
+          onToggleMenu();
+        }}
+      >
+        ⋮
+      </button>
+      {menuOpen ? (
+        <div className="source-item-menu" style={menuPosition ?? undefined}>
+          <button type="button" onClick={onDelete}>
+            <span className="source-item-menu-icon" aria-hidden="true">−</span>
+            移除来源
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

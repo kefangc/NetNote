@@ -512,6 +512,20 @@ button:disabled {
   font-weight: 800;
 }
 
+.ynu-complete-button {
+  min-height: 28px;
+  border-radius: 999px;
+  background: #eef0ff;
+  padding: 0 10px;
+  color: #4357ff;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ynu-complete-button:hover {
+  background: #e3e7ff;
+}
+
 .ynu-results-title small {
   margin-left: auto;
   color: #6b7280;
@@ -863,6 +877,98 @@ button:disabled {
 .quality-unknown {
   background: #f1f3f4;
   color: #5f6368;
+}
+
+.source-list-item {
+  position: relative;
+  width: 100%;
+}
+
+.source-list-open {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px 42px 12px 12px;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.source-list-open:hover,
+.source-list-item:has(.source-item-more[aria-expanded="true"]) .source-list-open {
+  background: #f8fafd;
+}
+
+.source-item-more {
+  position: absolute;
+  right: 10px;
+  bottom: 12px;
+  display: grid;
+  height: 28px;
+  width: 28px;
+  place-items: center;
+  border-radius: 999px;
+  color: #5f6368;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transition: background 140ms ease, opacity 140ms ease;
+}
+
+.source-list-item:hover .source-item-more,
+.source-item-more[aria-expanded="true"],
+.source-item-more:focus-visible {
+  opacity: 1;
+}
+
+.source-item-more:hover,
+.source-item-more[aria-expanded="true"] {
+  background: #f1f3f4;
+}
+
+.source-item-menu {
+  position: fixed;
+  z-index: 85;
+  display: grid;
+  width: 190px;
+  gap: 4px;
+  border: 1px solid rgba(218, 220, 224, 0.88);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px;
+  box-shadow: 0 2px 4px rgba(60, 64, 67, 0.12), 0 8px 20px rgba(60, 64, 67, 0.18);
+}
+
+.source-item-menu button {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 12px;
+  border-radius: 8px;
+  padding: 0 8px;
+  color: #8b2d16;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.source-item-menu button:hover {
+  background: #fff1ec;
+}
+
+.source-item-menu-icon {
+  display: grid;
+  height: 24px;
+  width: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: #fff1ec;
+  color: #8b2d16;
+  font-size: 20px;
+  line-height: 1;
 }
 
 .source-meta-chip {

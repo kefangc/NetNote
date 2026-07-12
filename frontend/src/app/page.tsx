@@ -8,6 +8,7 @@ import { StudioPanel } from "@/components/StudioPanel";
 import { IconButton, StatusPill } from "@/components/Common";
 import {
   addWebSources,
+  deleteSource,
   generateArtifact,
   getWorkspace,
   importYnuLecture,
@@ -145,6 +146,19 @@ export default function Home() {
     }
   }
 
+  async function removeSource(sourceId: string) {
+    setBusy("正在移除来源");
+    try {
+      setWorkspace(await deleteSource(sourceId));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "来源移除失败");
+      throw err;
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function sendMessage(content?: string) {
     const message = (content ?? chatInput).trim();
     if (!message) return;
@@ -235,8 +249,12 @@ export default function Home() {
             onYnuLogin={(credentials) => loginYnu(credentials)}
             onYnuSearch={() => void searchYnu()}
             onImportYnuCourse={(course) => importYnu(course)}
-            onClearSearch={() => setSearchResults([])}
+            onClearSearch={() => {
+              setSearchResults([]);
+              setYnuCourses([]);
+            }}
             onAddCandidates={(candidates) => addCandidates(candidates)}
+            onDeleteSource={(sourceId) => removeSource(sourceId)}
             onAsk={(message) => void sendMessage(message)}
             collapsed={sourcesCollapsed}
             onCollapse={() => setSourcesCollapsed(true)}

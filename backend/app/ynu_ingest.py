@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 from typing import Any
@@ -49,6 +49,7 @@ class YnuTranscriptSegment:
     text: str
     start: str = ""
     end: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class YnuClient:
@@ -115,14 +116,17 @@ class YnuClient:
         candidates = self.resolve_transcript_targets(request)
         segments: list[YnuTranscriptSegment] = []
         used_targets: list[dict[str, Any]] = []
+        failures: list[str] = []
         seen_segments: set[tuple[str, str]] = set()
         for target in candidates:
             content_id = str(target.get("content_id") or "").strip()
             if not content_id:
+                failures.append(f"empty content_id target={target.get('source')}")
                 continue
             try:
                 target_segments = self.fetch_transcript(content_id)
-            except Exception:
+            except Exception as exc:
+                failures.append(f"{content_id}({target.get('source') or 'unknown'}): {exc}")
                 continue
             if target_segments:
                 for segment in target_segments:
@@ -130,11 +134,20 @@ class YnuClient:
                     if signature in seen_segments:
                         continue
                     seen_segments.add(signature)
+                    segment.metadata = {
+                        **segment.metadata,
+                        **lecture_segment_metadata(target),
+                    }
                     segments.append(segment)
                 used_targets.append(target)
         if segments:
             return segments, {"resolved_targets": candidates, "used_targets": used_targets}
-        raise RuntimeError("未获取到课堂语音转写文本，请确认该直录播已生成“语音文本”。")
+        target_summary = ", ".join(str(target.get("content_id") or "") for target in candidates[:8])
+        failure_summary = "；".join(failures[:8])
+        detail = f"已尝试 {len(candidates)} 个候选 contentId：{target_summary or '无'}。"
+        if failure_summary:
+            detail += f" 失败详情：{failure_summary}"
+        raise RuntimeError(f"未获取到课堂语音转写文本，请确认该直录播已生成“语音文本”。{detail}")
 
     def resolve_transcript_targets(self, request: YnuImportLectureRequest) -> list[dict[str, Any]]:
         targets: list[dict[str, Any]] = []
@@ -320,9 +333,19 @@ class YnuClient:
             html, _ = self.request_text(url, headers={"Referer": YNU_BASE})
         except Exception:
             return []
-        ids = [content_id_from_url(match) for match in re.findall(r'["\']([^"\']+?\.mp4[^"\']*)["\']', html)]
-        ids.extend(re.findall(r"/rman/#/mindMap/([a-f0-9]{24,36})", html))
-        return [{"content_id": item, "source": "video_page"} for item in ids if item]
+        targets: list[dict[str, Any]] = []
+        for match in re.findall(r'["\']([^"\']+?\.mp4[^"\']*)["\']', html):
+            content_id = content_id_from_url(match)
+            if content_id:
+                targets.append(
+                    {
+                        "content_id": content_id,
+                        "download_address": absolute_course_url(match),
+                        "source": "video_page",
+                    }
+                )
+        targets.extend({"content_id": item, "source": "video_page"} for item in re.findall(r"/rman/#/mindMap/([a-f0-9]{24,36})", html))
+        return targets
 
     def request_json(
         self,
@@ -438,6 +461,7 @@ def build_source_from_lecture(client: YnuClient, request: YnuImportLectureReques
             "week": request.week,
             "section": request.section,
             "video_url": video_url,
+            "transcript_chunk_version": 2,
             "video_detail": detail,
             "transcript": transcript_meta,
         },
@@ -464,10 +488,15 @@ def transcript_chunks(
         if not bucket:
             return
         lines = [f"[{segment.start}] {segment.text}" if segment.start else segment.text for segment in bucket]
+        bucket_meta = bucket[0].metadata or {}
         start = bucket[0].start
         end = bucket[-1].end or bucket[-1].start
         time_part = " - ".join(part for part in [start, end] if part)
-        location_parts = [part for part in [week, section, time_part] if part]
+        bucket_week = str(bucket_meta.get("week") or week or "")
+        bucket_section = str(bucket_meta.get("section") or section or "")
+        bucket_video_url = str(bucket_meta.get("video_url") or video_url or "")
+        bucket_source_url = str(bucket_meta.get("source_url") or source_url or "")
+        location_parts = [part for part in [bucket_week, bucket_section, time_part] if part]
         text = "\n".join(lines).strip()
         start_seconds = time_to_seconds(start)
         end_seconds = time_to_seconds(end)
@@ -482,14 +511,16 @@ def transcript_chunks(
                 metadata={
                     "kind": "lecture",
                     "platform": "ynu_course",
-                    "week": week or "",
-                    "section": section or "",
+                    "content_id": str(bucket_meta.get("content_id") or ""),
+                    "target_source": str(bucket_meta.get("target_source") or ""),
+                    "week": bucket_week,
+                    "section": bucket_section,
                     "start_time": start,
                     "end_time": end,
                     "start_seconds": start_seconds,
                     "end_seconds": end_seconds,
-                    "video_url": video_url or "",
-                    "source_url": source_url or "",
+                    "video_url": bucket_video_url,
+                    "source_url": bucket_source_url,
                 },
             )
         )
@@ -498,12 +529,29 @@ def transcript_chunks(
 
     for segment in segments:
         text_len = len(segment.text) + len(segment.start) + 4
-        if bucket and bucket_len + text_len > size:
+        if bucket and (bucket_len + text_len > size or segment_group_key(bucket[-1]) != segment_group_key(segment)):
             flush()
         bucket.append(segment)
         bucket_len += text_len
     flush()
     return chunks
+
+
+def segment_group_key(segment: YnuTranscriptSegment) -> str:
+    metadata = segment.metadata or {}
+    return str(metadata.get("content_id") or metadata.get("video_url") or "")
+
+
+def lecture_segment_metadata(target: dict[str, Any]) -> dict[str, Any]:
+    download_address = absolute_course_url(str(target.get("download_address") or ""))
+    return {
+        "content_id": str(target.get("content_id") or ""),
+        "target_source": str(target.get("source") or ""),
+        "week": str(target.get("week") or ""),
+        "section": str(target.get("section") or ""),
+        "video_url": download_address,
+        "source_url": str(target.get("source_url") or ""),
+    }
 
 
 def best_video_url(transcript_meta: dict[str, Any]) -> str:

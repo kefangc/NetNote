@@ -49,6 +49,14 @@ export async function addWebSources(items: WebCandidate[]) {
   );
 }
 
+export async function deleteSource(sourceId: string) {
+  return asJson<Workspace>(
+    await fetch(`${API_BASE}/sources/${sourceId}`, {
+      method: "DELETE",
+    }),
+  );
+}
+
 export async function loginYnuSource(credentials: { username?: string; password?: string; cookie_header?: string }) {
   return asJson<{ session_id: string; auth_url: string; message: string }>(
     await fetch(`${API_BASE}/sources/ynu/login`, {

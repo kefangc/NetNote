@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import re
 import time
@@ -10,6 +9,7 @@ from html import unescape
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 from urllib.request import Request, urlopen
 
+from .knowledge_base import HybridKnowledgeBase
 from .llm_client import get_llm_client
 from .schemas import (
     Artifact,
@@ -160,40 +160,7 @@ def generate_source_guide(chunks: list[SourceChunk], title: str = "来源") -> s
 
 class RetrievalAgent:
     def search(self, state: WorkspaceState, query: str, limit: int = 5) -> list[SourceChunk]:
-        lower_query = query.lower()
-        has_domain_signal = any(term.lower() in lower_query for term in KNOWN_TERMS)
-        has_lecture_source = any(source.kind == "lecture" and source.status == "ready" for source in state.sources)
-        if not has_domain_signal and has_lecture_source:
-            lecture_markers = ["老师", "课堂", "课程", "讲到", "提到", "录播", "转写", "这节课", "上课", "第几周"]
-            has_domain_signal = any(marker in query for marker in lecture_markers)
-        if not has_domain_signal:
-            source_terms = {
-                keyword.lower()
-                for source in state.sources
-                for chunk in source.chunks
-                for keyword in chunk.keywords
-                if len(keyword) >= 2
-            }
-            has_domain_signal = any(term in lower_query for term in source_terms)
-        if not has_domain_signal:
-            return []
-        query_tokens = Counter(tokenize(query))
-        if not query_tokens:
-            return []
-        scored: list[tuple[float, SourceChunk]] = []
-        for source in state.sources:
-            if source.status != "ready":
-                continue
-            for chunk in source.chunks:
-                chunk_tokens = Counter(tokenize(chunk.text + " " + " ".join(chunk.keywords)))
-                common = set(query_tokens) & set(chunk_tokens)
-                if not common:
-                    continue
-                score = sum(query_tokens[t] * chunk_tokens[t] for t in common)
-                score /= math.sqrt(sum(v * v for v in chunk_tokens.values()) or 1)
-                scored.append((score, chunk))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [chunk for score, chunk in scored[:limit] if score > 0]
+        return HybridKnowledgeBase().search(state, query, limit=limit)
 
 
 class TutorAgent:
@@ -839,24 +806,10 @@ class SafetyAgent:
 
 class WebSearchAgent:
     def search(self, query: str) -> list[dict]:
-        real_results = self._search_searxng(query) or self._search_duckduckgo(query)
+        real_results = self._search_searxng(query) or self._search_duckduckgo(query) or self._search_bing(query)
         if real_results:
             return real_results
-        topics = extract_keywords(query, 5) or ["计算机网络", "TCP", "DNS"]
-        return [
-            {
-                "title": f"{topic} 学习补充资料",
-                "url": f"https://example.edu.cn/computer-network/{index + 1}",
-                "snippet": f"围绕 {topic} 的定义、协议流程、常见题型和易错点整理。",
-                "content": (
-                    f"{topic} 是计算机网络课程的重要主题。学习时应关注基本概念、协议流程、"
-                    "典型应用场景、常见误区以及与其他网络层次的关系。"
-                ),
-                "domain": "example.edu.cn",
-                "source_provider": "demo",
-            }
-            for index, topic in enumerate(topics[:5])
-        ]
+        return self._curated_fallback(query)
 
     def _search_searxng(self, query: str) -> list[dict]:
         base_url = os.getenv("SEARXNG_BASE_URL", "").strip().rstrip("/")
@@ -867,7 +820,7 @@ class WebSearchAgent:
             req = Request(url, headers={"User-Agent": "SoftwareCupA3/0.1"})
             import json
 
-            data = json.loads(urlopen(req, timeout=12).read().decode("utf-8", errors="ignore"))
+            data = json.loads(urlopen(req, timeout=3).read().decode("utf-8", errors="ignore"))
             items = data.get("results", [])[:6]
             return [
                 self._candidate(item.get("title", ""), item.get("url", ""), item.get("content", ""), "searxng")
@@ -883,7 +836,7 @@ class WebSearchAgent:
             url = f"{endpoint}?q={quote_plus(query)}"
             try:
                 req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                html = urlopen(req, timeout=12).read().decode("utf-8", errors="ignore")
+                html = urlopen(req, timeout=3).read().decode("utf-8", errors="ignore")
             except Exception:
                 continue
             if "result__a" in html or "result-link" in html:
@@ -907,6 +860,87 @@ class WebSearchAgent:
             if target:
                 results.append(self._candidate(title, target, snippet, "duckduckgo"))
         return results
+
+    def _search_bing(self, query: str) -> list[dict]:
+        url = f"https://www.bing.com/search?q={quote_plus(query)}"
+        try:
+            req = Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
+            )
+            html = urlopen(req, timeout=3).read().decode("utf-8", errors="ignore")
+        except Exception:
+            return []
+        blocks = re.findall(r'<li class="b_algo".*?</li>', html, flags=re.S)
+        results: list[dict] = []
+        for block in blocks[:8]:
+            link = re.search(r'<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>\s*</h2>', block, flags=re.S)
+            if not link:
+                link = re.search(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', block, flags=re.S)
+            if not link:
+                continue
+            snippet_match = re.search(r'<p[^>]*>(.*?)</p>', block, flags=re.S)
+            target = unescape(link.group(1))
+            if not target.startswith(("http://", "https://")) or "bing.com" in self._domain(target):
+                continue
+            title = self._strip_html(link.group(2))
+            snippet = self._strip_html(snippet_match.group(1) if snippet_match else "")
+            results.append(self._candidate(title, target, snippet, "bing"))
+        return results[:6]
+
+    def _curated_fallback(self, query: str) -> list[dict]:
+        lower = query.lower()
+        library = [
+            {
+                "terms": ["tcp", "拥塞控制", "congestion"],
+                "title": "RFC 5681: TCP Congestion Control",
+                "url": "https://www.rfc-editor.org/rfc/rfc5681",
+                "snippet": "IETF RFC 5681 说明 TCP 慢启动、拥塞避免、快速重传和快速恢复等经典拥塞控制机制。",
+            },
+            {
+                "terms": ["tcp", "拥塞控制", "cubic"],
+                "title": "Wikipedia: TCP congestion control",
+                "url": "https://en.wikipedia.org/wiki/TCP_congestion_control",
+                "snippet": "介绍 TCP 拥塞控制的基本思想、经典算法和 CUBIC、BBR 等实现背景。",
+            },
+            {
+                "terms": ["tcp", "三次握手", "握手"],
+                "title": "Cloudflare Learning Center: What is a TCP handshake?",
+                "url": "https://www.cloudflare.com/learning/ddos/glossary/tcp-ip/",
+                "snippet": "Cloudflare 对 TCP/IP 与 TCP 连接建立过程提供面向学习者的解释。",
+            },
+            {
+                "terms": ["http", "https", "应用层"],
+                "title": "MDN: An overview of HTTP",
+                "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Overview",
+                "snippet": "MDN 官方文档解释 HTTP 的基本结构、请求响应模型和 Web 通信流程。",
+            },
+            {
+                "terms": ["dns", "域名解析"],
+                "title": "Cloudflare Learning Center: What is DNS?",
+                "url": "https://www.cloudflare.com/learning/dns/what-is-dns/",
+                "snippet": "解释 DNS 的作用、域名解析过程和递归/权威解析等概念。",
+            },
+            {
+                "terms": ["osi", "tcp/ip", "网络体系结构", "计算机网络"],
+                "title": "Wikipedia: Internet protocol suite",
+                "url": "https://en.wikipedia.org/wiki/Internet_protocol_suite",
+                "snippet": "介绍 TCP/IP 协议族、分层结构和与互联网通信相关的核心协议。",
+            },
+        ]
+        selected = []
+        for item in library:
+            if any(term.lower() in lower or term in query for term in item["terms"]):
+                selected.append(item)
+        if not selected:
+            selected = library[-3:]
+        return [
+            self._candidate(item["title"], item["url"], item["snippet"], "curated")
+            for item in selected[:6]
+        ]
 
     def _candidate(self, title: str, url: str, snippet: str, provider: str = "demo") -> dict:
         content = "\n".join(part for part in [title, snippet, url] if part)

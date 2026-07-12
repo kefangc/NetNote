@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -49,6 +50,15 @@ from .ynu_ingest import YNU_AUTH_URL, YnuAuthError, YnuClient, build_source_from
 ROOT = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = ROOT / "uploads"
 DATA_PATH = ROOT / "data" / "workspace.json"
+LOG_DIR = ROOT / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger("software_cup_backend")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.FileHandler(LOG_DIR / "app.log", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
 
 app = FastAPI(title="Software Cup A3 Learning Agent", version="0.1.0")
 app.add_middleware(
@@ -269,12 +279,32 @@ def add_web_sources(request: AddWebSourcesRequest):
     return store.save(state)
 
 
+@app.delete("/sources/{source_id}")
+def delete_source(source_id: str):
+    state = ensure_seed()
+    source = next((item for item in state.sources if item.id == source_id), None)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    state.sources = [item for item in state.sources if item.id != source_id]
+    if source.path:
+        try:
+            source_path = Path(source.path).resolve()
+            upload_root = UPLOAD_DIR.resolve()
+            if source_path.is_file() and upload_root in source_path.parents:
+                source_path.unlink()
+        except OSError:
+            pass
+    state.study_events.append({"type": "source_delete", "source_id": source_id, "title": source.title})
+    return store.save(state)
+
+
 @app.post("/sources/ynu/login")
 def login_ynu(request: YnuLoginRequest):
     if request.cookie_header and request.cookie_header.strip():
         client = YnuClient(cookie_header=request.cookie_header)
         session_id = new_session_id()
         ynu_sessions[session_id] = client
+        logger.info("YNU cookie login succeeded session_id=%s", session_id)
         return {"session_id": session_id, "auth_url": YNU_AUTH_URL, "message": "已使用 Cookie 连接云大学堂"}
     if not request.username or not request.password:
         raise HTTPException(status_code=400, detail="请输入统一认证用户名和密码，或提供 course.ynu.edu.cn Cookie。")
@@ -287,6 +317,7 @@ def login_ynu(request: YnuLoginRequest):
         raise HTTPException(status_code=502, detail=f"云大学堂登录失败：{exc}") from exc
     session_id = new_session_id()
     ynu_sessions[session_id] = client
+    logger.info("YNU password login succeeded session_id=%s username=%s", session_id, request.username)
     return {"session_id": session_id, "auth_url": YNU_AUTH_URL, "message": "云大学堂已连接"}
 
 
@@ -294,6 +325,7 @@ def login_ynu(request: YnuLoginRequest):
 def list_ynu_courses(request: YnuCourseListRequest):
     client = ynu_sessions.get(request.session_id)
     if not client:
+        logger.warning("YNU course list failed: invalid session_id=%s query=%s", request.session_id, request.query)
         raise HTTPException(status_code=401, detail="云大学堂会话已失效，请重新登录。")
     try:
         courses = client.list_courses(
@@ -303,7 +335,9 @@ def list_ynu_courses(request: YnuCourseListRequest):
             page=request.page,
             size=request.size,
         )
+        logger.info("YNU course list query=%s returned=%s session_id=%s", request.query, len(courses), request.session_id)
     except Exception as exc:
+        logger.exception("YNU course list failed session_id=%s query=%s", request.session_id, request.query)
         raise HTTPException(status_code=502, detail=f"云大学堂课程列表获取失败：{exc}") from exc
     return {"items": courses}
 
@@ -312,21 +346,52 @@ def list_ynu_courses(request: YnuCourseListRequest):
 def import_ynu_lecture(request: YnuImportLectureRequest):
     client = ynu_sessions.get(request.session_id)
     if not client:
+        logger.warning(
+            "YNU import failed: invalid session_id=%s course_id=%s record_id=%s title=%s",
+            request.session_id,
+            request.course_id,
+            request.record_id,
+            request.title or request.course_name,
+        )
         raise HTTPException(status_code=401, detail="云大学堂会话已失效，请重新登录。")
     if not request.course_id or not request.record_id:
         raise HTTPException(status_code=400, detail="缺少课程 ID 或录播 ID。")
     state = ensure_seed()
-    existing = {
-        source.metadata.get("record_id")
-        for source in state.sources
-        if source.kind == "lecture" and source.metadata.get("platform") == "ynu_course"
-    }
-    if request.record_id in existing:
+    existing_source = next(
+        (
+            source
+            for source in state.sources
+            if source.kind == "lecture"
+            and source.metadata.get("platform") == "ynu_course"
+            and source.metadata.get("record_id") == request.record_id
+        ),
+        None,
+    )
+    if existing_source and existing_source.metadata.get("transcript_chunk_version") == 2:
+        logger.info("YNU import skipped existing source record_id=%s title=%s", request.record_id, existing_source.title)
         return state
     try:
+        logger.info(
+            "YNU import started course_id=%s record_id=%s title=%s week=%s section=%s",
+            request.course_id,
+            request.record_id,
+            request.title or request.course_name,
+            request.week,
+            request.section,
+        )
         source = build_source_from_lecture(client, request)
     except Exception as exc:
+        logger.exception(
+            "YNU import failed course_id=%s record_id=%s title=%s week=%s section=%s",
+            request.course_id,
+            request.record_id,
+            request.title or request.course_name,
+            request.week,
+            request.section,
+        )
         raise HTTPException(status_code=502, detail=f"云大学堂转写导入失败：{exc}") from exc
+    if existing_source:
+        state.sources = [item for item in state.sources if item.id != existing_source.id]
     state.sources.insert(0, source)
     state.study_events.append(
         {
@@ -335,6 +400,13 @@ def import_ynu_lecture(request: YnuImportLectureRequest):
             "record_id": request.record_id,
             "title": source.title,
         }
+    )
+    logger.info(
+        "YNU import succeeded source_id=%s title=%s chunks=%s content_length=%s",
+        source.id,
+        source.title,
+        len(source.chunks),
+        source.content_length,
     )
     return store.save(state)
 
