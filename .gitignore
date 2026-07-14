@@ -4,9 +4,11 @@ __pycache__/
 .pytest_cache/
 .codex_video_frames/
 .playwright-cli/
+.idea/
+.vscode/
 *.log
 *.err.log
-backend/data/workspace.json
+# Keep the curated local knowledge base under version control.
 backend/uploads/
 backend/.env
 backend/.env.*
@@ -16,3 +18,4 @@ frontend/node_modules/
 frontend/.env.local
 frontend/.env*.local
 frontend/out/
+output/
