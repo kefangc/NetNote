@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { IconButton } from "./Common";
 import { Markdown } from "./Markdown";
@@ -55,6 +56,8 @@ export function ChatPanel({
             <WelcomeChat onAsk={onSend} />
           )}
 
+          {isThinking ? <ThinkingCard /> : null}
+
           {streamingAnswer ? (
             <div className="mt-4 max-w-[820px] rounded-2xl border border-[#d9e3de] bg-white p-4 text-sm leading-7 shadow-sm">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[#2a6c61]">
@@ -81,6 +84,15 @@ export function ChatPanel({
       </div>
       {activeLecture ? <LecturePlaybackModal citation={activeLecture} onClose={() => setActiveLecture(null)} /> : null}
     </section>
+  );
+}
+
+function ThinkingCard() {
+  return (
+    <div className="mt-4 flex max-w-[820px] items-center gap-3 rounded-2xl border border-[#d9e3de] bg-white p-4 shadow-sm">
+      <Image className="thinking-logo" src="/brand/netnote-icon.svg" alt="NetNote" width={34} height={34} />
+      <div className="thinking-text">Thinking</div>
+    </div>
   );
 }
 
