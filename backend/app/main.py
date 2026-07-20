@@ -19,7 +19,7 @@ from .agents import (
     generate_source_guide,
     make_id,
 )
-from .llm_client import get_llm_client
+from .llm_client import fetch_models, get_llm_client, normalize_base_url, save_runtime_config
 from .memory import (
     build_runtime_context,
     generate_conversation_summary,
@@ -33,6 +33,8 @@ from .schemas import (
     ChatRequest,
     FlashcardReviewRequest,
     GenerateArtifactRequest,
+    LlmModelsRequest,
+    LlmSettingsUpdateRequest,
     Message,
     QuizSubmitRequest,
     RenameArtifactRequest,
@@ -69,8 +71,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+WORKSPACE_PREVIEW_CHUNKS = 3
+WORKSPACE_PREVIEW_CHARS = 480
+
 store = JsonStore(DATA_PATH)
 ynu_sessions: dict[str, YnuClient] = {}
+
+
+def source_keywords(source: Source, limit: int = 8) -> list[str]:
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for chunk in source.chunks:
+        for keyword in chunk.keywords:
+            normalized = keyword.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                keywords.append(normalized)
+                if len(keywords) >= limit:
+                    return keywords
+    return keywords
+
+
+def compact_source(source: Source) -> dict:
+    return {
+        "id": source.id,
+        "title": source.title,
+        "kind": source.kind,
+        "status": source.status,
+        "summary": source.summary,
+        "url": source.url,
+        "error": source.error,
+        "extraction_status": source.extraction_status,
+        "extraction_method": source.extraction_method,
+        "content_length": source.content_length,
+        "chunk_count": len(source.chunks),
+        "keywords": source_keywords(source),
+    }
+
+
+def workspace_response(state: WorkspaceState) -> dict:
+    """Return only UI metadata; original chunks remain in the server-side knowledge base."""
+    return {
+        "workspace_id": state.workspace_id,
+        "course_title": state.course_title,
+        "sources": [compact_source(source) for source in state.sources],
+        "messages": [message.model_dump() for message in state.messages],
+        "artifacts": [artifact.model_dump() for artifact in state.artifacts],
+        "profile": state.profile.model_dump(),
+    }
 
 
 def refresh_stale_source_guides(state: WorkspaceState) -> WorkspaceState:
@@ -211,9 +259,68 @@ def health():
     return {"ok": True, "ai_configured": llm.configured, "model": llm.model if llm.configured else None}
 
 
+@app.get("/settings/llm")
+def get_llm_settings():
+    llm = get_llm_client()
+    return {
+        "base_url": llm.base_url,
+        "model": llm.model,
+        "api_key_set": bool(llm.api_key),
+        "configured": llm.configured,
+    }
+
+
+@app.put("/settings/llm")
+def update_llm_settings(request: LlmSettingsUpdateRequest):
+    current = get_llm_client()
+    base_url = normalize_base_url(request.base_url)
+    model = request.model.strip()
+    api_key = request.api_key.strip() if request.api_key else current.api_key
+    if not base_url:
+        raise HTTPException(status_code=422, detail="Base URL 不能为空。")
+    if not model:
+        raise HTTPException(status_code=422, detail="模型不能为空。")
+    save_runtime_config(base_url=base_url, api_key=api_key, model=model)
+    return get_llm_settings()
+
+
+@app.post("/settings/llm/models")
+def list_llm_models(request: LlmModelsRequest):
+    current = get_llm_client()
+    base_url = normalize_base_url(request.base_url or current.base_url)
+    api_key = request.api_key.strip() if request.api_key else current.api_key
+    try:
+        items = fetch_models(base_url, api_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"items": items}
+
+
 @app.get("/workspace")
 def get_workspace():
-    return refresh_stale_source_guides(ensure_seed())
+    return workspace_response(refresh_stale_source_guides(ensure_seed()))
+
+
+@app.get("/sources/{source_id}/preview")
+def get_source_preview(source_id: str):
+    state = ensure_seed()
+    source = next((item for item in state.sources if item.id == source_id), None)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    items = []
+    for chunk in source.chunks[:WORKSPACE_PREVIEW_CHUNKS]:
+        text = chunk.text.strip()
+        if len(text) > WORKSPACE_PREVIEW_CHARS:
+            text = f"{text[:WORKSPACE_PREVIEW_CHARS].rstrip()}…"
+        items.append(
+            {
+                "id": chunk.id,
+                "location": chunk.location,
+                "keywords": chunk.keywords[:4],
+                "text": text,
+            }
+        )
+    return {"source_id": source.id, "chunk_count": len(source.chunks), "keywords": source_keywords(source), "items": items}
 
 
 @app.post("/sources/upload")
@@ -241,7 +348,7 @@ async def upload_source(file: UploadFile = File(...)):
     except Exception as exc:
         source.status = "failed"
         source.error = str(exc)
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 @app.post("/sources/search-web")
@@ -254,13 +361,13 @@ def add_web_source(request: AddWebSourceRequest):
     state = ensure_seed()
     source = build_web_source(request)
     state.sources.insert(0, source)
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 @app.post("/sources/add-web-batch")
 def add_web_sources(request: AddWebSourcesRequest):
     if not request.items:
-        return ensure_seed()
+        return workspace_response(ensure_seed())
     items = request.items[:8]
     max_workers = min(3, len(items))
     sources: list[Source] = []
@@ -276,7 +383,7 @@ def add_web_sources(request: AddWebSourcesRequest):
         state.sources.insert(0, source)
         if source.url:
             existing_urls.add(source.url)
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 @app.delete("/sources/{source_id}")
@@ -295,7 +402,7 @@ def delete_source(source_id: str):
         except OSError:
             pass
     state.study_events.append({"type": "source_delete", "source_id": source_id, "title": source.title})
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 @app.post("/sources/ynu/login")
@@ -369,7 +476,7 @@ def import_ynu_lecture(request: YnuImportLectureRequest):
     )
     if existing_source and existing_source.metadata.get("transcript_chunk_version") == 2:
         logger.info("YNU import skipped existing source record_id=%s title=%s", request.record_id, existing_source.title)
-        return state
+        return workspace_response(state)
     try:
         logger.info(
             "YNU import started course_id=%s record_id=%s title=%s week=%s section=%s",
@@ -408,7 +515,7 @@ def import_ynu_lecture(request: YnuImportLectureRequest):
         len(source.chunks),
         source.content_length,
     )
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 def build_web_source(request: AddWebSourceRequest) -> Source:
@@ -521,7 +628,7 @@ def rename_artifact(artifact_id: str, request: RenameArtifactRequest):
     if artifact.kind == "presentation":
         artifact.data["title"] = title
     state.study_events.append({"type": "artifact_rename", "artifact_id": artifact_id, "title": title})
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 @app.delete("/artifacts/{artifact_id}")
@@ -532,7 +639,7 @@ def delete_artifact(artifact_id: str):
     if len(state.artifacts) == original_count:
         raise HTTPException(status_code=404, detail="Artifact not found")
     state.study_events.append({"type": "artifact_delete", "artifact_id": artifact_id})
-    return store.save(state)
+    return workspace_response(store.save(state))
 
 
 @app.post("/artifacts/{artifact_id}/share")

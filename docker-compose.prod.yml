@@ -1,0 +1,29 @@
+name: software-cup-note
+
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18000:8000"
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/data:/app/data
+      - ./backend/uploads:/app/uploads
+      - ./backend/logs:/app/logs
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:13000:3000"
+    volumes:
+      - ./frontend/.next:/app/.next:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/next.config.ts:/app/next.config.ts:ro

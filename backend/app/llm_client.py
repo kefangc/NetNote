@@ -10,6 +10,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_CONFIG_PATH = ROOT / "data" / "llm_config.json"
 
 
 def load_env_file(path: Path = ROOT / ".env") -> None:
@@ -23,15 +24,40 @@ def load_env_file(path: Path = ROOT / ".env") -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+def normalize_base_url(value: str) -> str:
+    base_url = value.strip()
+    if base_url and not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
+    return base_url.rstrip("/")
+
+
+def load_runtime_config() -> dict[str, str]:
+    if not RUNTIME_CONFIG_PATH.exists():
+        return {}
+    try:
+        data = json.loads(RUNTIME_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {key: str(value).strip() for key, value in data.items() if isinstance(value, str)}
+
+
+def save_runtime_config(*, base_url: str, api_key: str, model: str) -> None:
+    RUNTIME_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"base_url": normalize_base_url(base_url), "api_key": api_key.strip(), "model": model.strip()}
+    temporary_path = RUNTIME_CONFIG_PATH.with_suffix(".tmp")
+    temporary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary_path.replace(RUNTIME_CONFIG_PATH)
+
+
 class OpenAICompatibleClient:
     def __init__(self) -> None:
         load_env_file()
-        base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").strip()
-        if base_url and not base_url.startswith(("http://", "https://")):
-            base_url = f"https://{base_url}"
-        self.base_url = base_url.rstrip("/")
-        self.api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY", "").strip()
-        self.model = os.getenv("OPENAI_COMPATIBLE_CHAT_MODEL", "gpt-5.5").strip()
+        runtime_config = load_runtime_config()
+        self.base_url = normalize_base_url(runtime_config.get("base_url") or os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""))
+        self.api_key = runtime_config.get("api_key") or os.getenv("OPENAI_COMPATIBLE_API_KEY", "").strip()
+        self.model = runtime_config.get("model") or os.getenv("OPENAI_COMPATIBLE_CHAT_MODEL", "gpt-5.5").strip()
 
     @property
     def configured(self) -> bool:
@@ -118,3 +144,24 @@ class OpenAICompatibleClient:
 
 def get_llm_client() -> OpenAICompatibleClient:
     return OpenAICompatibleClient()
+
+
+def fetch_models(base_url: str, api_key: str) -> list[str]:
+    normalized_base_url = normalize_base_url(base_url)
+    if not normalized_base_url:
+        raise RuntimeError("请先填写 Base URL。")
+    request = urllib.request.Request(
+        f"{normalized_base_url}/models",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"模型列表请求失败（HTTP {exc.code}）。") from exc
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"模型列表请求失败：{exc}") from exc
+    data = payload.get("data", []) if isinstance(payload, dict) else []
+    model_ids = [str(item.get("id", "")).strip() for item in data if isinstance(item, dict)]
+    return sorted({model_id for model_id in model_ids if model_id}, key=str.lower)

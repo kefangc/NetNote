@@ -28,8 +28,15 @@ export type Source = {
   extraction_status: "complete" | "partial" | "fallback" | "failed" | "unknown";
   extraction_method: "jina_reader" | "trafilatura" | "html_fallback" | "search_snippet" | "ynu_transcript" | "file" | "seed" | "unknown";
   content_length: number;
-  metadata?: Record<string, unknown>;
-  chunks: { id: string; text: string; location: string; keywords: string[]; metadata?: Record<string, unknown> }[];
+  chunk_count: number;
+  keywords: string[];
+};
+
+export type SourcePreview = {
+  source_id: string;
+  chunk_count: number;
+  keywords: string[];
+  items: { id: string; text: string; location: string; keywords: string[] }[];
 };
 
 export type Message = {

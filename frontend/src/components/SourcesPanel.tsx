@@ -1,10 +1,10 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useRef } from "react";
-import { useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { CollapseButton, PanelHeader, SplitPanelIcon } from "./Common";
 import { Markdown } from "./Markdown";
-import type { Source, SourceScope, WebCandidate, YnuCourse } from "@/lib/types";
+import { getSourcePreview } from "@/lib/api";
+import type { Source, SourcePreview, SourceScope, WebCandidate, YnuCourse } from "@/lib/types";
 
 export function SourcesPanel({
   sources,
@@ -724,7 +724,7 @@ function SourceItem({
             <div className="mt-2 flex items-center gap-2 text-[11px] text-[#91887d]">
               <span>{source.kind}</span>
               <span>•</span>
-              <span>{source.chunks.length} chunks</span>
+              <span>{source.chunk_count} chunks</span>
             </div>
           </div>
         </div>
@@ -763,15 +763,25 @@ function SourceItem({
 }
 
 function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; onBack: () => void; onAsk: (message: string) => void; onCollapse: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showChunks, setShowChunks] = useState(false);
-  const keywords = source.chunks.flatMap((chunk) => chunk.keywords).filter(Boolean);
-  const uniqueKeywords = Array.from(new Set(keywords)).slice(0, 4);
+  const [preview, setPreview] = useState<SourcePreview | null>(null);
+  const [previewError, setPreviewError] = useState<{ sourceId: string; message: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void getSourcePreview(source.id)
+      .then((result) => {
+        if (active) setPreview(result);
+      })
+      .catch((error: unknown) => {
+        if (active) setPreviewError({ sourceId: source.id, message: error instanceof Error ? error.message : "预览加载失败" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [source.id]);
+  const currentPreview = preview?.source_id === source.id ? preview : null;
+  const currentPreviewError = previewError?.sourceId === source.id ? previewError.message : "";
+  const uniqueKeywords = source.keywords.slice(0, 4);
   const guideText = source.summary || "这份来源已导入知识库。系统会围绕其中的核心概念、关键流程和易错点，为你生成问答、测验、抽认卡和思维导图。";
-  const visibleChunks = expanded ? source.chunks : source.chunks.slice(0, 6);
-  const fullText = source.chunks.map((chunk) => chunk.text.trim()).filter(Boolean).join("\n\n");
-  const previewText = expanded ? fullText : fullText.slice(0, 9000);
-  const shouldTruncateText = fullText.length > previewText.length;
 
   return (
     <aside className="panel flex min-h-0 flex-col source-detail-enter">
@@ -787,8 +797,8 @@ function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; o
         <div className="mb-5 flex flex-wrap items-center gap-2">
           <QualityPill source={source} />
           <span className="source-meta-chip">{source.extraction_method}</span>
-          <span className="source-meta-chip">{source.content_length || source.chunks.reduce((sum, chunk) => sum + chunk.text.length, 0)} 字</span>
-          <span className="source-meta-chip">{source.chunks.length} chunks</span>
+          <span className="source-meta-chip">{source.content_length} 字</span>
+          <span className="source-meta-chip">{source.chunk_count} chunks</span>
           {source.url ? (
             <a className="source-open-link" href={source.url} target="_blank" rel="noreferrer">
               打开原网页
@@ -823,15 +833,15 @@ function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; o
         </section>
         <article className="source-reading-card">
           <div className="source-reading-toolbar">
-            <span>{showChunks ? "检索片段" : "正文"}</span>
-            <button type="button" onClick={() => setShowChunks((value) => !value)}>
-              {showChunks ? "连续正文" : "查看片段"}
-            </button>
+            <span>服务端检索预览</span>
           </div>
-          {showChunks ? (
+          <p className="mb-4 text-sm leading-6 text-[#6b7280]">完整知识库仅保存在服务端并用于 AI 检索；此处最多展示 3 段受限预览。</p>
+          {currentPreviewError ? <p>{currentPreviewError}</p> : null}
+          {!currentPreview && !currentPreviewError ? <p>正在加载预览…</p> : null}
+          {currentPreview ? (
             <div className="space-y-3">
-              {visibleChunks.length ? (
-                visibleChunks.map((chunk) => (
+              {currentPreview.items.length ? (
+                currentPreview.items.map((chunk) => (
                   <section key={chunk.id} className="source-chunk-card">
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <span className="text-xs font-semibold text-[#5f6368]">{chunk.location}</span>
@@ -843,22 +853,8 @@ function SourceDetail({ source, onBack, onAsk, onCollapse }: { source: Source; o
               ) : (
                 <p>该来源暂无可预览文本。</p>
               )}
-              {source.chunks.length > 6 ? (
-                <button className="source-expand-button" onClick={() => setExpanded((value) => !value)}>
-                  {expanded ? "收起片段" : `展开全部 ${source.chunks.length} 个片段`}
-                </button>
-              ) : null}
             </div>
-          ) : (
-            <>
-              {previewText ? <p className="source-readable-text">{previewText}</p> : <p>该来源暂无可预览文本。</p>}
-              {shouldTruncateText || expanded ? (
-                <button className="source-expand-button mt-4" onClick={() => setExpanded((value) => !value)}>
-                  {expanded ? "收起正文" : "展开全部正文"}
-                </button>
-              ) : null}
-            </>
-          )}
+          ) : null}
         </article>
       </div>
     </aside>

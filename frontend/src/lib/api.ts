@@ -1,6 +1,13 @@
-import type { Artifact, ArtifactKind, WebCandidate, Workspace, YnuCourse } from "./types";
+import type { Artifact, ArtifactKind, SourcePreview, WebCandidate, Workspace, YnuCourse } from "./types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+
+export type LlmSettings = {
+  base_url: string;
+  model: string;
+  api_key_set: boolean;
+  configured: boolean;
+};
 
 async function asJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -11,6 +18,34 @@ async function asJson<T>(response: Response): Promise<T> {
 
 export async function getWorkspace() {
   return asJson<Workspace>(await fetch(`${API_BASE}/workspace`, { cache: "no-store" }));
+}
+
+export async function getSourcePreview(sourceId: string) {
+  return asJson<SourcePreview>(await fetch(`${API_BASE}/sources/${sourceId}/preview`, { cache: "no-store" }));
+}
+
+export async function getLlmSettings() {
+  return asJson<LlmSettings>(await fetch(`${API_BASE}/settings/llm`, { cache: "no-store" }));
+}
+
+export async function saveLlmSettings(settings: { base_url: string; api_key?: string; model: string }) {
+  return asJson<LlmSettings>(
+    await fetch(`${API_BASE}/settings/llm`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    }),
+  );
+}
+
+export async function fetchLlmModels(settings: { base_url?: string; api_key?: string }) {
+  return asJson<{ items: string[] }>(
+    await fetch(`${API_BASE}/settings/llm/models`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    }),
+  );
 }
 
 export async function uploadSource(file: File) {

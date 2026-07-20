@@ -202,3 +202,14 @@ class FlashcardReviewRequest(BaseModel):
     artifact_id: str
     card_id: str
     result: Literal["known", "unknown", "skipped"]
+
+
+class LlmSettingsUpdateRequest(BaseModel):
+    base_url: str
+    api_key: str | None = None
+    model: str
+
+
+class LlmModelsRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None

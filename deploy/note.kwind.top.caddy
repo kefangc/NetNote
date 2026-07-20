@@ -1,0 +1,11 @@
+note.kwind.top {
+    encode zstd gzip
+
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:18000
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:13000
+    }
+}

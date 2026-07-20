@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { SourcesPanel } from "@/components/SourcesPanel";
 import { StudioPanel } from "@/components/StudioPanel";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { IconButton, StatusPill } from "@/components/Common";
 import {
   addWebSources,
@@ -36,6 +37,7 @@ export default function Home() {
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
   const [studioCollapsed, setStudioCollapsed] = useState(false);
   const [openStudioArtifact, setOpenStudioArtifact] = useState<Artifact | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const studioWide = !studioCollapsed && openStudioArtifact?.kind === "mindmap";
   const gridColumns = studioCollapsed
     ? `${sourcesCollapsed ? "64px" : "350px"} minmax(460px, 1fr) 76px`
@@ -213,7 +215,7 @@ export default function Home() {
               新建笔记本
             </button>
             <button className="top-button">分享</button>
-            <button className="top-button">设置</button>
+            <button className="top-button" onClick={() => setSettingsOpen(true)}>设置</button>
             <StatusPill tone={busy ? "working" : "ready"} label={busy ?? "已保存"} />
             <IconButton label="刷新" symbol="↻" onClick={() => void refresh()} />
           </div>
@@ -281,6 +283,7 @@ export default function Home() {
             onOpenArtifactChange={setOpenStudioArtifact}
           />
         </div>
+        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </div>
     </main>
   );

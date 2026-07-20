@@ -9,6 +9,7 @@ __pycache__/
 *.log
 *.err.log
 # Keep the curated local knowledge base under version control.
+backend/data/llm_config.json
 backend/uploads/
 backend/.env
 backend/.env.*
