@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactDetail } from "./ArtifactViews";
-import { CollapseButton, GeneratingCard, PanelHeader, SplitPanelIcon } from "./Common";
+import { CollapseButton, PanelHeader, SplitPanelIcon } from "./Common";
 import { deleteArtifact, renameArtifact, shareArtifact } from "@/lib/api";
 import { artifactIcon, artifactKinds, artifactLabel, studioStyle } from "@/lib/artifacts";
 import type { Artifact, ArtifactKind, Profile } from "@/lib/types";
@@ -10,7 +10,6 @@ import type { Artifact, ArtifactKind, Profile } from "@/lib/types";
 export function StudioPanel({
   artifacts,
   profile,
-  busy,
   onGenerate,
   onAsk,
   onRefresh,
@@ -21,7 +20,6 @@ export function StudioPanel({
 }: {
   artifacts: Artifact[];
   profile?: Profile;
-  busy: string | null;
   onGenerate: (kind: ArtifactKind, prompt?: string) => void;
   onAsk: (text: string) => void;
   onRefresh: () => Promise<void>;
@@ -220,7 +218,6 @@ export function StudioPanel({
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {busy?.startsWith("正在生成") ? <GeneratingCard label={busy} /> : null}
         <div className="space-y-2">
           {visibleArtifacts.map((artifact) => (
             <ArtifactListItem

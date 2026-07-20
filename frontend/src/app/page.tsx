@@ -1,7 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  AgentActivityIsland,
+  type AgentActivityMode,
+  type AgentActivityPhase,
+} from "@/components/AgentActivityIsland";
 import { ChatPanel } from "@/components/ChatPanel";
 import { SourcesPanel } from "@/components/SourcesPanel";
 import { StudioPanel } from "@/components/StudioPanel";
@@ -22,6 +27,16 @@ import {
 import type { Artifact, ArtifactKind, Message, SourceScope, WebCandidate, Workspace, YnuCourse } from "@/lib/types";
 import { artifactLabel } from "@/lib/artifacts";
 
+type AgentActivity = {
+  id: number;
+  mode: AgentActivityMode;
+  phase: AgentActivityPhase;
+};
+
+const SUPERVISOR_MIN_MS = 450;
+const PROFILE_MIN_MS = 600;
+const REVIEW_MIN_MS = 800;
+
 export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [chatInput, setChatInput] = useState("");
@@ -38,6 +53,8 @@ export default function Home() {
   const [studioCollapsed, setStudioCollapsed] = useState(false);
   const [openStudioArtifact, setOpenStudioArtifact] = useState<Artifact | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentActivity, setAgentActivity] = useState<AgentActivity | null>(null);
+  const agentRunRef = useRef(0);
   const studioWide = !studioCollapsed && openStudioArtifact?.kind === "mindmap";
   const gridColumns = studioCollapsed
     ? `${sourcesCollapsed ? "64px" : "350px"} minmax(460px, 1fr) 76px`
@@ -162,43 +179,76 @@ export default function Home() {
   }
 
   async function sendMessage(content?: string) {
-    const message = (content ?? chatInput).trim();
-    if (!message) return;
-    setChatInput("");
-    setStreamingAnswer("");
-    setBusy("AI 正在基于来源回答");
+   const message = (content ?? chatInput).trim();
+   if (!message) return;
+   setChatInput("");
+   setStreamingAnswer("");
+   setBusy("AI 正在基于来源回答");
+    const activityId = ++agentRunRef.current;
+    setAgentActivity({ id: activityId, mode: "chat", phase: "supervisor" });
+    const stageTimers = [
+      window.setTimeout(() => updateAgentPhase(activityId, "profile"), SUPERVISOR_MIN_MS),
+      window.setTimeout(() => updateAgentPhase(activityId, "retrieval"), SUPERVISOR_MIN_MS + PROFILE_MIN_MS),
+    ];
     const optimistic: Message = {
-      id: `local-${Date.now()}`,
-      role: "user",
-      content: message,
-      citations: [],
-    };
-    setWorkspace((current) => current ? { ...current, messages: [...current.messages, optimistic] } : current);
-    try {
-      await streamChat(message, setStreamingAnswer);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "聊天失败");
-    } finally {
-      setStreamingAnswer("");
-      setBusy(null);
-    }
-  }
+      id: `local-${activityId}`,
+     role: "user",
+     content: message,
+     citations: [],
+   };
+   setWorkspace((current) => current ? { ...current, messages: [...current.messages, optimistic] } : current);
+   try {
+      await streamChat(message, setStreamingAnswer, () => {
+        stageTimers.forEach((timer) => window.clearTimeout(timer));
+        updateAgentPhase(activityId, "generation");
+      });
+      stageTimers.forEach((timer) => window.clearTimeout(timer));
+      updateAgentPhase(activityId, "review");
+      await Promise.all([refresh(), wait(REVIEW_MIN_MS)]);
+   } catch (err) {
+     setError(err instanceof Error ? err.message : "聊天失败");
+   } finally {
+      stageTimers.forEach((timer) => window.clearTimeout(timer));
+     setStreamingAnswer("");
+     setBusy(null);
+      clearAgentActivity(activityId);
+   }
+ }
 
   async function generate(kind: ArtifactKind, prompt?: string) {
-    setBusy(`正在生成 ${artifactLabel(kind)}`);
-    try {
-      await generateArtifact(kind, prompt || undefined);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "生成失败");
-    } finally {
-      setBusy(null);
-    }
+   setBusy(`正在生成 ${artifactLabel(kind)}`);
+    const activityId = ++agentRunRef.current;
+    setAgentActivity({ id: activityId, mode: "resource", phase: "supervisor" });
+    const stageTimers = [
+      window.setTimeout(() => updateAgentPhase(activityId, "profile"), SUPERVISOR_MIN_MS),
+      window.setTimeout(() => updateAgentPhase(activityId, "retrieval"), SUPERVISOR_MIN_MS + PROFILE_MIN_MS),
+      window.setTimeout(() => updateAgentPhase(activityId, "generation"), SUPERVISOR_MIN_MS + PROFILE_MIN_MS + 650),
+    ];
+   try {
+     await generateArtifact(kind, prompt || undefined);
+      stageTimers.forEach((timer) => window.clearTimeout(timer));
+      updateAgentPhase(activityId, "review");
+      await Promise.all([refresh(), wait(REVIEW_MIN_MS)]);
+   } catch (err) {
+     setError(err instanceof Error ? err.message : "生成失败");
+   } finally {
+      stageTimers.forEach((timer) => window.clearTimeout(timer));
+     setBusy(null);
+      clearAgentActivity(activityId);
+   }
+ }
+
+  function updateAgentPhase(id: number, phase: AgentActivityPhase) {
+    setAgentActivity((current) => current?.id === id ? { ...current, phase } : current);
   }
 
-  return (
+  function clearAgentActivity(id: number) {
+    setAgentActivity((current) => current?.id === id ? null : current);
+  }
+
+ return (
     <main className="min-h-screen overflow-hidden bg-[#eef0ff] text-[#202124]">
+      {agentActivity ? <AgentActivityIsland mode={agentActivity.mode} phase={agentActivity.phase} /> : null}
       <div className="flex h-screen flex-col">
         <header className="flex h-16 shrink-0 items-center justify-between px-5">
           <div className="flex min-w-0 items-center gap-4">
@@ -216,7 +266,7 @@ export default function Home() {
             </button>
             <button className="top-button">分享</button>
             <button className="top-button" onClick={() => setSettingsOpen(true)}>设置</button>
-            <StatusPill tone={busy ? "working" : "ready"} label={busy ?? "已保存"} />
+            <StatusPill tone={busy ? "working" : "ready"} label={busy ? "处理中" : "已保存"} />
             <IconButton label="刷新" symbol="↻" onClick={() => void refresh()} />
           </div>
         </header>
@@ -273,7 +323,6 @@ export default function Home() {
           <StudioPanel
             artifacts={workspace?.artifacts ?? []}
             profile={workspace?.profile}
-            busy={busy}
             onGenerate={(kind, prompt) => void generate(kind, prompt)}
             onAsk={(text) => void sendMessage(text)}
             onRefresh={refresh}
@@ -287,4 +336,8 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 }

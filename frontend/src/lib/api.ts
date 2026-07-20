@@ -176,7 +176,11 @@ export async function getSharedArtifact(artifactId: string) {
   );
 }
 
-export async function streamChat(message: string, onChunk: (chunk: string) => void) {
+export async function streamChat(
+  message: string,
+  onChunk: (chunk: string) => void,
+  onFirstChunk?: () => void,
+) {
   const response = await fetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -188,10 +192,15 @@ export async function streamChat(message: string, onChunk: (chunk: string) => vo
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let text = "";
+  let receivedFirstChunk = false;
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     const chunk = decoder.decode(value, { stream: true });
+    if (!receivedFirstChunk && chunk) {
+      receivedFirstChunk = true;
+      onFirstChunk?.();
+    }
     text += chunk;
     onChunk(text);
   }

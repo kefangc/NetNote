@@ -50648,9 +50648,438 @@
           }
         }
       ]
+    },
+    {
+      "id": "msg_6722279ac5",
+      "role": "user",
+      "content": "test",
+      "citations": []
+    },
+    {
+      "id": "msg_c7580e2475",
+      "role": "assistant",
+      "content": "测试收到 ✅\n\n你可以继续提问计算机网络知识点，例如：IPv4 分片中的 `DF`、片偏移量计算、RIP/OSPF/BGP 区别，或 TCP 拥塞控制。\n\n**引用**\n- [1] 计算机网络 / 14 / 8 / 00:32:17 - 00:32:40\n- [2] 计算机网络 / 12 / 5 / 00:37:54 - 00:38:16\n- [3] Tcp 流量&拥塞控制详解 - 知乎 / 片段 14\n- [4] 计算机网络 / 14 / 8 / 00:26:41 - 00:26:57",
+      "citations": [
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "14 / 8 / 00:32:17 - 00:32:40",
+          "snippet": "[00:32:17] 设置为幺五零幺五零零的字节， [00:32:20] 好然后我们再看一下它对应的分片的标志位， [00:32:23] 那现在你开始分第一个分片， [00:32:25] 所以的话， [00:32:26] 它是整一个的分片的IP数据报， [00:32:28] 第一",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "14",
+            "section": "8",
+            "start_time": "00:32:17",
+            "end_time": "00:32:40",
+            "start_seconds": 1937,
+            "end_seconds": 1960,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/6/2/%E5%8A%9B%E8%A1%8C%E6%A5%BC4610/310b31afeea942cb9d7441324aa9d21b_filemerge.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "310b31afeea942cb9d7441324aa9d21b",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "14 / 8 / 00:32:11 - 00:33:34"
+          }
+        },
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "12 / 5 / 00:37:54 - 00:38:16",
+          "snippet": "[00:37:54] 那它SY标志位和AC标志位的话都置为了一好在下来话， [00:37:58] 我看到， [00:37:59] 客户端这边收到了服务器返还的这样一个对应的确认， [00:38:03] 那知道服务器的话是活跃的。 [00:38:05] 是同意建立连接的， [00:",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "12",
+            "section": "5",
+            "start_time": "00:37:54",
+            "end_time": "00:38:16",
+            "start_seconds": 2274,
+            "end_seconds": 2296,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/5/20/%E5%8A%9B%E8%A1%8C%E6%A5%BC2605/1895849033ff4d7b9a74056243d75652.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "1895849033ff4d7b9a74056243d75652",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "12 / 5 / 00:37:54 - 00:39:14"
+          }
+        },
+        {
+          "source_id": "source_7326e5828b",
+          "source_title": "Tcp 流量&拥塞控制详解 - 知乎",
+          "location": "片段 14",
+          "snippet": "R5cCI6IkpXVCJ9.eyJpc3MiOiJ6aGlkYV9zZXJ2ZXIiLCJleHAiOjE3ODE4NjczNjksInEiOiLmi6XloZ7mjqfliLYiLCJ6aGlkYV9zb3VyY2UiOiJlbnRpdHkiLCJjb250ZW50X2lkI",
+          "metadata": {}
+        },
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "14 / 8 / 00:26:41 - 00:26:57",
+          "snippet": "[00:26:41] 骗的这样一种场景， [00:26:43] 好， [00:26:43] 那在IP的这个数据报的格式里面， [00:26:46] 我们看到中间有ID， [00:26:48] 然后标志位以及偏移量这三个头部字段， [00:26:51] 就是为了应对分片的这个机制，",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "14",
+            "section": "8",
+            "start_time": "00:26:41",
+            "end_time": "00:26:57",
+            "start_seconds": 1601,
+            "end_seconds": 1617,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/6/2/%E5%8A%9B%E8%A1%8C%E6%A5%BC4610/310b31afeea942cb9d7441324aa9d21b_filemerge.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "310b31afeea942cb9d7441324aa9d21b",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "14 / 8 / 00:26:19 - 00:27:46"
+          }
+        }
+      ]
+    },
+    {
+      "id": "msg_502bdffa6f",
+      "role": "user",
+      "content": "test",
+      "citations": []
+    },
+    {
+      "id": "msg_482c61da72",
+      "role": "assistant",
+      "content": "测试正常 ✅\n\n**引用**\n- [1] 计算机网络 / 14 / 8 / 00:32:17 - 00:32:40\n- [2] 计算机网络 / 12 / 5 / 00:37:54 - 00:38:16\n- [3] 计算机网络 / 14 / 8 / 00:29:18 - 00:29:45\n- [4] 计算机网络 / 14 / 8 / 00:33:40 - 00:33:53",
+      "citations": [
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "14 / 8 / 00:32:17 - 00:32:40",
+          "snippet": "[00:32:17] 设置为幺五零幺五零零的字节， [00:32:20] 好然后我们再看一下它对应的分片的标志位， [00:32:23] 那现在你开始分第一个分片， [00:32:25] 所以的话， [00:32:26] 它是整一个的分片的IP数据报， [00:32:28] 第一",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "14",
+            "section": "8",
+            "start_time": "00:32:17",
+            "end_time": "00:32:40",
+            "start_seconds": 1937,
+            "end_seconds": 1960,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/6/2/%E5%8A%9B%E8%A1%8C%E6%A5%BC4610/310b31afeea942cb9d7441324aa9d21b_filemerge.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "310b31afeea942cb9d7441324aa9d21b",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "14 / 8 / 00:32:11 - 00:33:34"
+          }
+        },
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "12 / 5 / 00:37:54 - 00:38:16",
+          "snippet": "[00:37:54] 那它SY标志位和AC标志位的话都置为了一好在下来话， [00:37:58] 我看到， [00:37:59] 客户端这边收到了服务器返还的这样一个对应的确认， [00:38:03] 那知道服务器的话是活跃的。 [00:38:05] 是同意建立连接的， [00:",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "12",
+            "section": "5",
+            "start_time": "00:37:54",
+            "end_time": "00:38:16",
+            "start_seconds": 2274,
+            "end_seconds": 2296,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/5/20/%E5%8A%9B%E8%A1%8C%E6%A5%BC2605/1895849033ff4d7b9a74056243d75652.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "1895849033ff4d7b9a74056243d75652",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "12 / 5 / 00:37:54 - 00:39:14"
+          }
+        },
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "14 / 8 / 00:29:18 - 00:29:45",
+          "snippet": "[00:29:18] 所以我们看到通过ID， [00:29:21] 偏移量以及对应的分片的标志位这三个结合在一起， [00:29:26] 那就能够把对应的一个完整的IP数据包的话， [00:29:29] 给他分做多个小的。 [00:29:31] 数据报好， [00:29:32] ",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "14",
+            "section": "8",
+            "start_time": "00:29:18",
+            "end_time": "00:29:45",
+            "start_seconds": 1758,
+            "end_seconds": 1785,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/6/2/%E5%8A%9B%E8%A1%8C%E6%A5%BC4610/310b31afeea942cb9d7441324aa9d21b_filemerge.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "310b31afeea942cb9d7441324aa9d21b",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "14 / 8 / 00:29:15 - 00:30:43"
+          }
+        },
+        {
+          "source_id": "source_05e11028da",
+          "source_title": "计算机网络",
+          "location": "14 / 8 / 00:33:40 - 00:33:53",
+          "snippet": "[00:33:40] 那ID的话也是X， [00:33:42] 然后的话它的投入标志位， [00:33:44] 它这个对应的分片标志位化也是一， [00:33:47] 因为你没有分完， [00:33:49] 所以他标志位仍然是一， [00:33:51] 然后我们现在要修改的。",
+          "metadata": {
+            "kind": "lecture",
+            "platform": "ynu_course",
+            "week": "14",
+            "section": "8",
+            "start_time": "00:33:40",
+            "end_time": "00:33:53",
+            "start_seconds": 2020,
+            "end_seconds": 2033,
+            "video_url": "https://course.ynu.edu.cn/bucket-z/unit-cwcc268v239qk92m/video/2026/6/2/%E5%8A%9B%E8%A1%8C%E6%A5%BC4610/310b31afeea942cb9d7441324aa9d21b_filemerge.mp4",
+            "source_url": "https://course.ynu.edu.cn/learn/videoreview/2cb25efa8cb34dfa97767a0e2c986b15?id=29169&schoolYear=2025-2026&semester=春季",
+            "content_id": "310b31afeea942cb9d7441324aa9d21b",
+            "target_source": "recording_info",
+            "localized": true,
+            "parent_location": "14 / 8 / 00:33:34 - 00:34:59"
+          }
+        }
+      ]
     }
   ],
   "artifacts": [
+    {
+      "id": "artifact_86e01b37f0",
+      "kind": "quiz",
+      "title": "计算机网络测验",
+      "status": "ready",
+      "data": {
+        "questions": [
+          {
+            "id": "quiz_4284b7ac38",
+            "stem": "根据课程介绍，计算机网络课程在学院多数专业中的课程性质是？",
+            "options": [
+              {
+                "key": "A",
+                "text": "必修课程",
+                "explanation": "课程介绍指出，计算机网络是学院基本上每个专业的必修课程。"
+              },
+              {
+                "key": "B",
+                "text": "仅面向计算机专业的选修课程",
+                "explanation": "来源中没有将其描述为仅计算机专业的选修课。"
+              },
+              {
+                "key": "C",
+                "text": "实验课程",
+                "explanation": "课程包含实验环节，但整体被称为理论课程。"
+              },
+              {
+                "key": "D",
+                "text": "毕业设计课程",
+                "explanation": "来源未提及该课程属于毕业设计课程。"
+              }
+            ],
+            "answer": "A",
+            "topic": "课程定位",
+            "explanation": "计算机网络是学院多数专业的必修课程，并且是计算机相关专业408考试的科目之一。"
+          },
+          {
+            "id": "quiz_64e53a1001",
+            "stem": "课程中所讲授的计算机网络协议，在当前计算机网络中的作用是？",
+            "options": [
+              {
+                "key": "A",
+                "text": "构成计算机网络的核心与体系基石",
+                "explanation": "课程介绍明确指出，协议构成当前计算机网络的核心以及体系中的基石。"
+              },
+              {
+                "key": "B",
+                "text": "仅用于网络硬件的生产",
+                "explanation": "协议并非只服务于硬件生产。"
+              },
+              {
+                "key": "C",
+                "text": "仅用于课堂实验评分",
+                "explanation": "协议是网络运行的基础，不限于实验评分。"
+              },
+              {
+                "key": "D",
+                "text": "完全替代网络体系结构",
+                "explanation": "协议属于网络体系的重要组成，而非替代体系结构。"
+              }
+            ],
+            "answer": "A",
+            "topic": "网络协议",
+            "explanation": "课程将介绍基础理论、基础体系和基本网络协议，其中协议是当前网络正常运行的核心基础。"
+          },
+          {
+            "id": "quiz_95a21f2f79",
+            "stem": "该课程安排的实验学时数是多少？",
+            "options": [
+              {
+                "key": "A",
+                "text": "18学时",
+                "explanation": "来源说明课内包含18个学时的实验。"
+              },
+              {
+                "key": "B",
+                "text": "10学时",
+                "explanation": "10%是期中考试或平时成绩的比例信息，不是实验学时。"
+              },
+              {
+                "key": "C",
+                "text": "36学时",
+                "explanation": "来源未说明实验为36学时。"
+              },
+              {
+                "key": "D",
+                "text": "72学时",
+                "explanation": "72学时是课程总学时，而不是实验学时。"
+              }
+            ],
+            "answer": "A",
+            "topic": "课程安排",
+            "explanation": "课程总计72学时，其中包含18学时实验。"
+          },
+          {
+            "id": "quiz_deb2f27c02",
+            "stem": "根据课程说明，期末考试在总评成绩中的占比是？",
+            "options": [
+              {
+                "key": "A",
+                "text": "10%",
+                "explanation": "10%对应期中考试，平时成绩也被说明为10%。"
+              },
+              {
+                "key": "B",
+                "text": "20%",
+                "explanation": "实验占比约为10%到20%，不是期末考试占比。"
+              },
+              {
+                "key": "C",
+                "text": "60%",
+                "explanation": "来源明确说明期末考试占比60%。"
+              },
+              {
+                "key": "D",
+                "text": "80%",
+                "explanation": "来源未说明期末考试占80%。"
+              }
+            ],
+            "answer": "C",
+            "topic": "课程考核",
+            "explanation": "课程考核中，期中考试占10%，期末考试占60%，平时成绩占10%，实验约占10%至20%。"
+          },
+          {
+            "id": "quiz_79b8be7e4d",
+            "stem": "TCP滑动窗口传输模式中，当发送量达到窗口大小后，发送方通常如何处理？",
+            "options": [
+              {
+                "key": "A",
+                "text": "等待确认报文（ACK），并依据确认继续发送",
+                "explanation": "来源指出，发送量达到窗口大小后需要等待；收到一条ACK后，窗口向后移动并发送下一条数据。"
+              },
+              {
+                "key": "B",
+                "text": "立即关闭TCP连接",
+                "explanation": "达到窗口大小不意味着连接关闭。"
+              },
+              {
+                "key": "C",
+                "text": "丢弃所有已发送的数据",
+                "explanation": "已发送数据用于等待确认，不应被直接丢弃。"
+              },
+              {
+                "key": "D",
+                "text": "改用UDP继续传输",
+                "explanation": "滑动窗口是TCP机制，不涉及自动改用UDP。"
+              }
+            ],
+            "answer": "A",
+            "topic": "TCP滑动窗口",
+            "explanation": "滑动窗口允许发送方在未逐包等待ACK时批量发送；收到ACK后窗口滑动，并继续发送新的数据。"
+          },
+          {
+            "id": "quiz_fa74f14e2f",
+            "stem": "在TCP滑动窗口机制中，若某个ACK丢失但后续ACK成功到达，通常会发生什么？",
+            "options": [
+              {
+                "key": "A",
+                "text": "连接必然中断",
+                "explanation": "后续ACK可确认其序号之前的数据，因此不必然导致连接中断。"
+              },
+              {
+                "key": "B",
+                "text": "后续ACK可以覆盖前面丢失ACK的确认效果",
+                "explanation": "ACK表示其确认序号之前的数据均已收到，所以后续ACK可覆盖之前丢失ACK的影响。"
+              },
+              {
+                "key": "C",
+                "text": "发送方必须立刻重传全部数据",
+                "explanation": "仅ACK丢失且后续ACK到达时，不需要重传全部数据。"
+              },
+              {
+                "key": "D",
+                "text": "接收方将窗口永久设为0",
+                "explanation": "ACK丢失不等同于接收缓冲区满。"
+              }
+            ],
+            "answer": "B",
+            "topic": "TCP确认机制",
+            "explanation": "由于确认号具有累计确认含义，后续到达的ACK能够确认此前的数据，从而弥补部分ACK丢失的影响。"
+          },
+          {
+            "id": "quiz_aee94c9856",
+            "stem": "TCP流量控制主要用于解决哪类问题？",
+            "options": [
+              {
+                "key": "A",
+                "text": "接收方处理过慢、缓冲区可能被填满的问题",
+                "explanation": "流量控制根据接收方缓冲区大小调节发送方速率，避免接收方来不及处理数据而导致缓冲区满。"
+              },
+              {
+                "key": "B",
+                "text": "IP地址不足的问题",
+                "explanation": "IP地址不足不属于TCP流量控制的目标。"
+              },
+              {
+                "key": "C",
+                "text": "应用程序界面显示问题",
+                "explanation": "流量控制与界面显示无关。"
+              },
+              {
+                "key": "D",
+                "text": "网络电缆物理损坏问题",
+                "explanation": "物理链路损坏不是TCP流量控制能够解决的问题。"
+              }
+            ],
+            "answer": "A",
+            "topic": "TCP流量控制",
+            "explanation": "当接收方处理速度慢且缓冲区满时，新到数据可能无处存放。TCP通过通告窗口大小，使发送方调整发送速度。"
+          },
+          {
+            "id": "quiz_53c234a8b1",
+            "stem": "当TCP接收方缓冲区已满并通告窗口大小为0时，发送方采取的措施是？",
+            "options": [
+              {
+                "key": "A",
+                "text": "永久停止通信",
+                "explanation": "发送方会暂时停止业务数据发送，但不会永久停止通信。"
+              },
+              {
+                "key": "B",
+                "text": "持续发送大量业务数据",
+                "explanation": "窗口为0时继续大量发送会加重接收方缓冲压力。"
+              },
+              {
+                "key": "C",
+                "text": "定期发送窗口探测包，询问窗口是否恢复",
+                "explanation": "来源指出，发送方会间隔发送不携带业务数据的窗口探测包，以触发ACK并获知接收方状态。"
+              },
+              {
+                "key": "D",
+                "text": "立即删除TCP连接状态",
+                "explanation": "零窗口时不需要立即删除连接状态。"
+              }
+            ],
+            "answer": "C",
+            "topic": "TCP零窗口",
+            "explanation": "零窗口时，发送方停止发送业务数据，并通过窗口探测包了解接收方缓冲区是否已有可用空间。"
+          }
+        ]
+      }
+    },
     {
       "id": "artifact_cca080cadd",
       "kind": "presentation",
@@ -54253,6 +54682,16 @@
       "type": "chat",
       "message": "IPV4分片中MF是什么意思",
       "retrieval_query": "IPv4 分片首部中的 MF（More Fragments）标志位是什么意思？它在最后一个分片中取什么值？"
+    },
+    {
+      "type": "chat",
+      "message": "test",
+      "retrieval_query": "在 IPv4 分片中，MF（More Fragments）标志位表示什么？"
+    },
+    {
+      "type": "chat",
+      "message": "test",
+      "retrieval_query": "IPv4 分片中 DF 标志位、MF 标志位和片偏移字段分别表示什么？"
     }
   ]
 }
